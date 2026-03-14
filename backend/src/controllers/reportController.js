@@ -5,18 +5,49 @@ import ReportLog from "../models/ReportLog.js";
 import { buildExcelBuffer, buildPdfBuffer } from "../services/reportService.js";
 
 const getReportRows = async (reportType, query) => {
+  const studentFilter = {};
+  if (query.department) studentFilter.department = query.department;
+  if (query.section) studentFilter.section = String(query.section).toUpperCase();
+
   if (reportType === "STUDENT_PROGRESS") {
-    const students = await Student.find(query.department ? { department: query.department } : {}).populate("department", "name code");
+    const students = await Student.find(studentFilter).populate("department", "name code");
     return students.map((s) => {
       const latest = s.metrics.at(-1) || {};
       return {
         rollNo: s.rollNo,
         name: s.name,
+        section: s.section,
         department: s.department?.code || "NA",
         cgpa: latest.cgpa || 0,
         attendancePercent: latest.attendancePercent || 0,
         backlogCount: latest.backlogCount || 0,
         riskLevel: s.riskLevel
+      };
+    });
+  }
+
+  if (reportType === "SECTION_WISE") {
+    const students = await Student.find(studentFilter);
+    const map = new Map();
+
+    students.forEach((s) => {
+      const sec = s.section || "A";
+      if (!map.has(sec)) map.set(sec, []);
+      map.get(sec).push(s);
+    });
+
+    return Array.from(map.entries()).map(([section, list]) => {
+      const latest = list.map((s) => s.metrics.at(-1)).filter(Boolean);
+      const avgCgpa = latest.length ? latest.reduce((sum, m) => sum + Number(m.cgpa || 0), 0) / latest.length : 0;
+      const passPercent = latest.length
+        ? (latest.filter((m) => Number(m.backlogCount || 0) === 0).length / latest.length) * 100
+        : 0;
+
+      return {
+        section,
+        totalStudents: list.length,
+        averageCgpa: Number(avgCgpa.toFixed(2)),
+        passPercent: Number(passPercent.toFixed(2))
       };
     });
   }
@@ -43,11 +74,12 @@ const getReportRows = async (reportType, query) => {
     }));
   }
 
-  const students = await Student.find(query.department ? { department: query.department } : {});
+  const students = await Student.find(studentFilter);
   return students.map((s) => {
     const latest = s.metrics.at(-1) || {};
     return {
       rollNo: s.rollNo,
+      section: s.section,
       semester: latest.semester || 0,
       cgpa: latest.cgpa || 0,
       backlogCount: latest.backlogCount || 0

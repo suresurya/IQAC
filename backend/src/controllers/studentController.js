@@ -2,7 +2,19 @@ import Student from "../models/Student.js";
 import Department from "../models/Department.js";
 import Attendance from "../models/Attendance.js";
 import Mark from "../models/Mark.js";
+import StudentActivity from "../models/StudentActivity.js";
+import Announcement from "../models/Announcement.js";
 import { evaluateRisk } from "../utils/riskEngine.js";
+
+const ensureStudentAccess = (req, student) => {
+  if (req.user.role !== "student") return true;
+  return String(req.user.studentProfile) === String(student._id);
+};
+
+const gradePointFromGrade = (grade) => {
+  const map = { O: 10, "A+": 9, A: 8, "B+": 7, B: 6, C: 5, F: 0 };
+  return map[grade] ?? 0;
+};
 
 export const createStudent = async (req, res) => {
   const payload = req.body;
@@ -17,10 +29,11 @@ export const createStudent = async (req, res) => {
 };
 
 export const listStudents = async (req, res) => {
-  const { department, academicYear, semester, riskLevel, search } = req.query;
+  const { department, section, academicYear, semester, riskLevel, search } = req.query;
 
   const filter = {};
   if (department) filter.department = department;
+  if (section) filter.section = String(section).toUpperCase();
   if (riskLevel) filter.riskLevel = riskLevel;
   if (search) filter.$or = [{ name: { $regex: search, $options: "i" } }, { rollNo: { $regex: search, $options: "i" } }];
 
@@ -71,18 +84,160 @@ export const getStudentDashboard = async (req, res) => {
     return res.status(404).json({ success: false, message: "Student not found" });
   }
 
+  if (!ensureStudentAccess(req, student)) {
+    return res.status(403).json({ success: false, message: "Forbidden" });
+  }
+
   const attendance = await Attendance.find({ student: studentId }).sort({ semester: 1 });
   const marks = await Mark.find({ student: studentId }).sort({ semester: 1 });
+  const activities = await StudentActivity.find({ student: studentId }).sort({ date: -1 });
+  const announcements = await Announcement.find({
+    active: true,
+    audienceRoles: { $in: ["student"] },
+    $or: [{ department: student.department?._id }, { department: null }, { department: { $exists: false } }]
+  })
+    .sort({ publishedOn: -1 })
+    .limit(20);
+
+  const latestMetric = student.metrics.at(-1) || {};
+  const currentSemester = Number(req.query.semester || student.currentSemester);
+  const semesterMarks = marks.filter((m) => m.semester === currentSemester);
+  const semesterAttendance = attendance.find((a) => a.semester === currentSemester);
+
+  const totalCredits = marks.reduce((sum, m) => sum + Number(m.credits || 0), 0);
+  const currentCredits = semesterMarks.reduce((sum, m) => sum + Number(m.credits || 0), 0);
+  const requiredCredits = 160;
+  const gpaNumerator = semesterMarks.reduce((sum, m) => sum + gradePointFromGrade(m.grade) * Number(m.credits || 0), 0);
+  const gpaDenominator = semesterMarks.reduce((sum, m) => sum + Number(m.credits || 0), 0);
+  const semesterGpa = gpaDenominator ? Number((gpaNumerator / gpaDenominator).toFixed(2)) : 0;
+
+  const overview = {
+    studentName: student.name,
+    rollNumber: student.rollNo,
+    department: student.department?.name,
+    semester: currentSemester,
+    currentCgpa: latestMetric.cgpa || 0,
+    attendancePercentage: semesterAttendance?.percentage || latestMetric.attendancePercent || 0,
+    backlogCount: latestMetric.backlogCount || 0,
+    riskLevel: student.riskLevel
+  };
 
   return res.status(200).json({
     success: true,
     data: {
       student,
+      overview,
       cgpaTrend: student.metrics.map((m) => ({ semester: m.semester, cgpa: m.cgpa })),
       attendance,
+      attendanceBySubject: semesterAttendance?.subjects || [],
       marks,
+      semesterMarks,
+      internalMarks: semesterMarks.map((m) => ({
+        subjectCode: m.subjectCode,
+        subjectName: m.subjectName,
+        internal: m.internal,
+        passed: m.internal >= 16
+      })),
+      credits: {
+        totalCompleted: totalCredits,
+        currentSemester: currentCredits,
+        requiredForGraduation: requiredCredits
+      },
+      semesterGpa,
+      feeDetails: student.feeDetails || {
+        totalFee: 0,
+        paidAmount: 0,
+        pendingAmount: 0,
+        paymentStatus: "PENDING"
+      },
+      activities,
+      announcements,
+      personalDetails: {
+        name: student.name,
+        rollNo: student.rollNo,
+        department: student.department?.name,
+        email: student.email,
+        phone: student.phone || "",
+        address: student.address || ""
+      },
       backlogBySemester: student.metrics.map((m) => ({ semester: m.semester, backlogCount: m.backlogCount })),
       riskLevel: student.riskLevel
     }
   });
+};
+
+export const getStudentProfile = async (req, res) => {
+  const { studentId } = req.params;
+  const student = await Student.findById(studentId).populate("department", "name code");
+
+  if (!student) {
+    return res.status(404).json({ success: false, message: "Student not found" });
+  }
+
+  if (!ensureStudentAccess(req, student)) {
+    return res.status(403).json({ success: false, message: "Forbidden" });
+  }
+
+  return res.status(200).json({
+    success: true,
+    data: {
+      name: student.name,
+      rollNo: student.rollNo,
+      department: student.department?.name,
+      semester: student.currentSemester,
+      email: student.email,
+      phone: student.phone || "",
+      address: student.address || "",
+      feeDetails: student.feeDetails
+    }
+  });
+};
+
+export const getStudentAttendance = async (req, res) => {
+  const { studentId } = req.params;
+  const student = await Student.findById(studentId);
+
+  if (!student) return res.status(404).json({ success: false, message: "Student not found" });
+  if (!ensureStudentAccess(req, student)) return res.status(403).json({ success: false, message: "Forbidden" });
+
+  const records = await Attendance.find({ student: studentId }).sort({ semester: -1 });
+  return res.status(200).json({ success: true, data: records });
+};
+
+export const getStudentMarks = async (req, res) => {
+  const { studentId } = req.params;
+  const student = await Student.findById(studentId);
+
+  if (!student) return res.status(404).json({ success: false, message: "Student not found" });
+  if (!ensureStudentAccess(req, student)) return res.status(403).json({ success: false, message: "Forbidden" });
+
+  const marks = await Mark.find({ student: studentId }).sort({ semester: -1, subjectCode: 1 });
+  return res.status(200).json({ success: true, data: marks });
+};
+
+export const getStudentActivities = async (req, res) => {
+  const { studentId } = req.params;
+  const student = await Student.findById(studentId);
+
+  if (!student) return res.status(404).json({ success: false, message: "Student not found" });
+  if (!ensureStudentAccess(req, student)) return res.status(403).json({ success: false, message: "Forbidden" });
+
+  const items = await StudentActivity.find({ student: studentId }).sort({ date: -1 });
+  return res.status(200).json({ success: true, data: items });
+};
+
+export const getStudentAnnouncements = async (req, res) => {
+  const { studentId } = req.params;
+  const student = await Student.findById(studentId).populate("department", "_id");
+
+  if (!student) return res.status(404).json({ success: false, message: "Student not found" });
+  if (!ensureStudentAccess(req, student)) return res.status(403).json({ success: false, message: "Forbidden" });
+
+  const items = await Announcement.find({
+    active: true,
+    audienceRoles: { $in: ["student"] },
+    $or: [{ department: student.department?._id }, { department: null }, { department: { $exists: false } }]
+  }).sort({ publishedOn: -1 });
+
+  return res.status(200).json({ success: true, data: items });
 };

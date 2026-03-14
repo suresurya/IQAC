@@ -10,6 +10,8 @@ const markSchema = new mongoose.Schema(
     internal: { type: Number, default: 0 },
     external: { type: Number, default: 0 },
     total: { type: Number, required: true },
+    grade: { type: String, default: "" },
+    credits: { type: Number, default: 0 },
     passed: { type: Boolean, default: true },
     enteredBy: { type: mongoose.Schema.Types.ObjectId, ref: "User" }
   },

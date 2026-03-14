@@ -25,6 +25,16 @@ const userSchema = new mongoose.Schema(
       unique: true,
       sparse: true
     },
+    facultyProfile: {
+      designation: { type: String, default: "" },
+      qualification: { type: String, default: "" },
+      experienceYears: { type: Number, default: 0 },
+      phd: { type: Boolean, default: false },
+      bio: { type: String, default: "" },
+      scholars: [{ type: String }],
+      recentPapers: [{ type: String }],
+      expertise: [{ type: String }]
+    },
     department: { type: mongoose.Schema.Types.ObjectId, ref: "Department" },
     studentProfile: { type: mongoose.Schema.Types.ObjectId, ref: "Student" }
   },

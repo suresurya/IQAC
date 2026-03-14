@@ -18,8 +18,21 @@ const studentSchema = new mongoose.Schema(
     name: { type: String, required: true, trim: true },
     email: { type: String, required: true, lowercase: true, trim: true },
     department: { type: mongoose.Schema.Types.ObjectId, ref: "Department", required: true },
+    section: { type: String, required: true, trim: true, uppercase: true, default: "A" },
     currentSemester: { type: Number, required: true },
     batch: { type: String, required: true },
+    phone: { type: String, default: "" },
+    address: { type: String, default: "" },
+    feeDetails: {
+      totalFee: { type: Number, default: 0 },
+      paidAmount: { type: Number, default: 0 },
+      pendingAmount: { type: Number, default: 0 },
+      paymentStatus: {
+        type: String,
+        enum: ["PAID", "PARTIAL", "PENDING"],
+        default: "PENDING"
+      }
+    },
     metrics: [semesterMetricSchema],
     riskLevel: { type: String, enum: ["LOW", "MEDIUM", "HIGH"], default: "LOW" }
   },

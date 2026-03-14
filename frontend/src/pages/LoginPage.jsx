@@ -125,7 +125,7 @@ export default function LoginPage() {
             name="email"
             value={form.email}
             onChange={onChange}
-            placeholder="Email"
+            placeholder="Email / Registration Number / Faculty ID"
             className="w-full rounded-xl border border-brand-ink/20 bg-white px-4 py-3"
           />
           <input

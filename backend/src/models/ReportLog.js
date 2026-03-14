@@ -10,7 +10,8 @@ const reportLogSchema = new mongoose.Schema(
         "CGPA_DISTRIBUTION",
         "BACKLOG_ANALYSIS",
         "PLACEMENT",
-        "FACULTY_CONTRIBUTION"
+        "FACULTY_CONTRIBUTION",
+        "SECTION_WISE"
       ],
       required: true
     },
