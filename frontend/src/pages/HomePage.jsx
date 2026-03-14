@@ -4,6 +4,7 @@ import { useAuth } from "../context/AuthContext.jsx";
 const roleLabel = {
   admin: "Admin",
   hod: "Department",
+  department: "Department",
   student: "Student",
   faculty: "Faculty"
 };
@@ -17,7 +18,8 @@ const dashboardLinks = [
 
 export default function HomePage() {
   const { user } = useAuth();
-  const visibleLinks = dashboardLinks.filter((link) => link.allowed.includes(user?.role));
+  const normalizedRole = String(user?.role || "").toLowerCase() === "department" ? "hod" : String(user?.role || "").toLowerCase();
+  const visibleLinks = dashboardLinks.filter((link) => link.allowed.includes(normalizedRole));
 
   return (
     <div className="space-y-6">
@@ -25,7 +27,7 @@ export default function HomePage() {
         <p className="text-xs uppercase tracking-[0.2em] text-brand-ink/70">Home</p>
         <h2 className="mt-2 font-heading text-3xl text-brand-ink">Welcome, {user?.name}</h2>
         <p className="mt-2 text-brand-ink/80">
-          Logged in as <strong>{roleLabel[user?.role] || user?.role}</strong>. Use the quick links below to continue.
+          Logged in as <strong>{roleLabel[normalizedRole] || normalizedRole}</strong>. Use the quick links below to continue.
         </p>
       </section>
 

@@ -122,12 +122,28 @@ export const getStudentDashboard = async (req, res) => {
     riskLevel: student.riskLevel
   };
 
+  const recommendation =
+    student.riskLevel === "HIGH"
+      ? "Immediate mentoring recommended: focus on attendance recovery, subject remedial sessions, and weekly progress reviews."
+      : student.riskLevel === "MEDIUM"
+        ? "Track closely with bi-weekly faculty reviews and improve consistency in attendance and internal marks."
+        : "Maintain current academic momentum with advanced learning goals and placement-focused preparation.";
+
+  const semesterPerformance = student.metrics.map((m) => ({
+    semester: m.semester,
+    sgpa: m.sgpa,
+    cgpa: m.cgpa,
+    attendancePercent: m.attendancePercent,
+    backlogCount: m.backlogCount
+  }));
+
   return res.status(200).json({
     success: true,
     data: {
       student,
       overview,
       cgpaTrend: student.metrics.map((m) => ({ semester: m.semester, cgpa: m.cgpa })),
+      semesterPerformance,
       attendance,
       attendanceBySubject: semesterAttendance?.subjects || [],
       marks,
@@ -161,7 +177,8 @@ export const getStudentDashboard = async (req, res) => {
         address: student.address || ""
       },
       backlogBySemester: student.metrics.map((m) => ({ semester: m.semester, backlogCount: m.backlogCount })),
-      riskLevel: student.riskLevel
+      riskLevel: student.riskLevel,
+      recommendation
     }
   });
 };

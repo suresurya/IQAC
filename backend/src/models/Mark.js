@@ -3,6 +3,8 @@ import mongoose from "mongoose";
 const markSchema = new mongoose.Schema(
   {
     student: { type: mongoose.Schema.Types.ObjectId, ref: "Student", required: true },
+    section: { type: mongoose.Schema.Types.ObjectId, ref: "Section" },
+    faculty: { type: mongoose.Schema.Types.ObjectId, ref: "User" },
     subjectCode: { type: String, required: true, uppercase: true },
     subjectName: { type: String, required: true },
     semester: { type: Number, required: true },

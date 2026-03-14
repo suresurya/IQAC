@@ -8,7 +8,10 @@ export const AuthProvider = ({ children }) => {
   const [loading, setLoading] = useState(true);
 
   const login = async (email, password, role) => {
-    const { data } = await client.post("/auth/login", { email, password, role });
+    const payload = { email, password };
+    if (role) payload.role = role;
+
+    const { data } = await client.post("/auth/login", payload);
     localStorage.setItem("iqac_token", data.token);
     setUser(data.data);
     return data.data;

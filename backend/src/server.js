@@ -13,6 +13,7 @@ import analyticsRoutes from "./routes/analyticsRoutes.js";
 import reportRoutes from "./routes/reportRoutes.js";
 import accreditationRoutes from "./routes/accreditationRoutes.js";
 import aiRoutes from "./routes/aiRoutes.js";
+import adminRoutes from "./routes/adminRoutes.js";
 
 dotenv.config();
 
@@ -36,6 +37,7 @@ app.use("/api/analytics", analyticsRoutes);
 app.use("/api/reports", reportRoutes);
 app.use("/api/accreditation", accreditationRoutes);
 app.use("/api/ai", aiRoutes);
+app.use("/api/admin", adminRoutes);
 
 app.use((err, _, res, __) => {
   res.status(err.status || 500).json({

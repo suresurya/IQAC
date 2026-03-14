@@ -40,7 +40,7 @@ export default function LoginPage() {
         setSuccess("Signup successful. Please login with your new account.");
         setMode("login");
       } else {
-        await login(form.email, form.password, form.role);
+        await login(form.email, form.password);
         navigate("/home");
       }
     } catch (err) {
@@ -109,17 +109,19 @@ export default function LoginPage() {
             />
           )}
 
-          <select
-            name="role"
-            value={form.role}
-            onChange={onChange}
-            className="w-full rounded-xl border border-brand-ink/20 bg-white px-4 py-3"
-          >
-            <option value="student">Student</option>
-            <option value="faculty">Faculty</option>
-            <option value="department">Department</option>
-            <option value="admin">Admin</option>
-          </select>
+          {mode === "signup" && (
+            <select
+              name="role"
+              value={form.role}
+              onChange={onChange}
+              className="w-full rounded-xl border border-brand-ink/20 bg-white px-4 py-3"
+            >
+              <option value="student">Student</option>
+              <option value="faculty">Faculty</option>
+              <option value="hod">Department (HOD)</option>
+              <option value="admin">Admin</option>
+            </select>
+          )}
 
           <input
             name="email"

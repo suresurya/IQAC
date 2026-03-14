@@ -12,7 +12,11 @@ export default function ProtectedRoute({ children, allowedRoles }) {
     return <Navigate to="/auth" replace />;
   }
 
-  if (!allowedRoles.includes(user.role)) {
+  const normalizedRole = String(user.role || "").toLowerCase() === "department"
+    ? "hod"
+    : String(user.role || "").toLowerCase();
+
+  if (!allowedRoles.includes(normalizedRole)) {
     return <Navigate to="/" replace />;
   }
 

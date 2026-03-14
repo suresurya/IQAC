@@ -2,7 +2,7 @@
 
 Full MERN project inside one workspace with:
 - `frontend` (React + Tailwind + Chart.js)
-- `backend` (Node + Express + MongoDB + JWT)
+- `backend` (Node + Express + MongoDB + JWT+LLM)
 
 ## Features Implemented
 
