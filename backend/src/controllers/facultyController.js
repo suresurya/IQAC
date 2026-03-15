@@ -6,6 +6,7 @@ import User from "../models/User.js";
 import TeachingAssignment from "../models/TeachingAssignment.js";
 import Department from "../models/Department.js";
 import Faculty from "../models/Faculty.js";
+import SectionAllocation from "../models/SectionAllocation.js";
 import mongoose from "mongoose";
 
 const splitList = (value) => {
@@ -40,6 +41,59 @@ const gradeFromTotal = (total) => {
   if (total >= 50) return "B";
   if (total >= 40) return "C";
   return "F";
+};
+
+const getFacultyAllocations = async (user) => {
+  const bySectionAllocation = await SectionAllocation.find({
+    $or: [{ facultyId: String(user.facultyId || "").toUpperCase() }, { facultyUser: user._id }]
+  }).sort({ section: 1, semester: 1, subject: 1 });
+
+  if (bySectionAllocation.length) {
+    return bySectionAllocation.map((row) => ({
+      department: row.department,
+      section: row.section,
+      semester: row.semester,
+      academicYear: row.academicYear,
+      subjectName: row.subject,
+      subjectCode: String(row.subject || "").replace(/\s+/g, "").slice(0, 8).toUpperCase()
+    }));
+  }
+
+  const byTeachingAssignment = await TeachingAssignment.find({ faculty: user._id }).sort({ section: 1, semester: 1, subjectCode: 1 });
+  if (byTeachingAssignment.length) {
+    return byTeachingAssignment.map((row) => ({
+      department: row.department,
+      section: row.section,
+      semester: row.semester,
+      academicYear: row.academicYear,
+      subjectName: row.subjectName,
+      subjectCode: row.subjectCode
+    }));
+  }
+
+  const facultyRecord = await Faculty.findOne({ user: user._id }).select("department sections subjects");
+  if (facultyRecord?.subjects?.length && facultyRecord?.sections?.length) {
+    const academicYear = `${new Date().getFullYear()}-${String((new Date().getFullYear() + 1) % 100).padStart(2, "0")}`;
+    return facultyRecord.subjects.flatMap((subject) =>
+      facultyRecord.sections.map((section) => ({
+        department: facultyRecord.department,
+        section: String(section).toUpperCase(),
+        semester: Number(subject.semester || 0),
+        academicYear,
+        subjectName: subject.subjectName,
+        subjectCode: String(subject.subjectName || "").replace(/\s+/g, "").slice(0, 8).toUpperCase()
+      }))
+    );
+  }
+
+  return byTeachingAssignment.map((row) => ({
+    department: row.department,
+    section: row.section,
+    semester: row.semester,
+    academicYear: row.academicYear,
+    subjectName: row.subjectName,
+    subjectCode: row.subjectCode
+  }));
 };
 
 export const addFaculty = async (req, res) => {
@@ -177,6 +231,20 @@ export const addFaculty = async (req, res) => {
     );
 
     await TeachingAssignment.insertMany(assignmentDocs, { ordered: false }).catch(() => null);
+
+    if (normalizedEmployeeId) {
+      const allocationDocs = assignmentDocs.map((doc) => ({
+        department: doc.department,
+        section: doc.section,
+        semester: doc.semester,
+        academicYear: doc.academicYear,
+        subject: doc.subjectName,
+        facultyId: normalizedEmployeeId,
+        facultyUser: user._id
+      }));
+
+      await SectionAllocation.insertMany(allocationDocs, { ordered: false }).catch(() => null);
+    }
   }
 
   const populated = await Faculty.findById(faculty._id).populate("department", "name code").populate("user", "name email username role facultyId");
@@ -435,6 +503,144 @@ export const getFacultyPortal = async (req, res) => {
   });
 };
 
+export const getFacultyDashboardAnalytics = async (req, res) => {
+  const allocations = await getFacultyAllocations(req.user);
+
+  const allowedSections = [...new Set(allocations.map((row) => String(row.section || "").toUpperCase()).filter(Boolean))];
+  const allowedSemesters = [...new Set(allocations.map((row) => Number(row.semester || 0)).filter((x) => x > 0))];
+
+  const studentFilter = {
+    department: req.user.department,
+    section: { $in: allowedSections.length ? allowedSections : ["__NO_SECTION__"] }
+  };
+
+  if (allowedSemesters.length) {
+    studentFilter.currentSemester = { $in: allowedSemesters };
+  }
+
+  const students = await Student.find(studentFilter).select("_id name rollNo section currentSemester metrics riskLevel");
+  const studentIds = students.map((row) => row._id);
+
+  const normalizedStudents = students.map((student) => {
+    const latest = student.metrics?.at(-1) || {};
+    return {
+      _id: student._id,
+      studentId: student._id,
+      name: student.name,
+      rollNo: student.rollNo,
+      section: student.section,
+      semester: student.currentSemester,
+      cgpa: Number(latest.cgpa || 0),
+      attendance: Number(latest.attendancePercent || 0),
+      backlogs: Number(latest.backlogCount || 0),
+      riskLevel: student.riskLevel
+    };
+  });
+
+  const totalStudents = normalizedStudents.length;
+  const averageCgpa = totalStudents
+    ? normalizedStudents.reduce((sum, row) => sum + row.cgpa, 0) / totalStudents
+    : 0;
+  const passPercentage = totalStudents
+    ? (normalizedStudents.filter((row) => row.backlogs === 0).length / totalStudents) * 100
+    : 0;
+  const studentsWithBacklogs = normalizedStudents.filter((row) => row.backlogs > 0).length;
+
+  const riskDistribution = normalizedStudents.reduce(
+    (acc, row) => {
+      if (row.cgpa < 5) acc.high += 1;
+      else if (row.cgpa <= 7) acc.medium += 1;
+      else acc.low += 1;
+      return acc;
+    },
+    { high: 0, medium: 0, low: 0 }
+  );
+
+  const sectionBuckets = normalizedStudents.reduce((acc, row) => {
+    if (!acc[row.section]) acc[row.section] = [];
+    acc[row.section].push(row.cgpa);
+    return acc;
+  }, {});
+
+  const sectionPerformance = Object.entries(sectionBuckets).map(([section, cgpas]) => ({
+    section: `Section ${section}`,
+    averageCgpa: Number((cgpas.reduce((sum, value) => sum + value, 0) / (cgpas.length || 1)).toFixed(2))
+  }));
+
+  const topStudents = [...normalizedStudents]
+    .sort((a, b) => b.cgpa - a.cgpa)
+    .slice(0, 10)
+    .map((row) => ({
+      studentId: row.studentId,
+      name: row.name,
+      rollNo: row.rollNo,
+      section: row.section,
+      cgpa: Number(row.cgpa.toFixed(2))
+    }));
+
+  const lowAttendanceStudents = normalizedStudents
+    .filter((row) => row.attendance < 75)
+    .map((row) => ({
+      studentId: row.studentId,
+      name: row.name,
+      rollNo: row.rollNo,
+      section: row.section,
+      attendance: Number(row.attendance.toFixed(2))
+    }));
+
+  const marks = studentIds.length
+    ? await Mark.find({ student: { $in: studentIds } }).select("student subjectCode subjectName semester passed")
+    : [];
+
+  const subjectMap = allocations.reduce((acc, row) => {
+    const code = String(row.subjectCode || "").toUpperCase();
+    if (!code) return acc;
+    if (!acc[code]) {
+      acc[code] = { subjectCode: code, subjectName: row.subjectName || code, total: 0, passed: 0 };
+    }
+    return acc;
+  }, {});
+
+  for (const mark of marks) {
+    const code = String(mark.subjectCode || "").toUpperCase();
+    if (!subjectMap[code]) continue;
+    subjectMap[code].total += 1;
+    if (mark.passed) subjectMap[code].passed += 1;
+  }
+
+  const subjectPassPercentage = Object.values(subjectMap).map((row) => ({
+    subjectCode: row.subjectCode,
+    subjectName: row.subjectName,
+    passPercentage: row.total ? Number(((row.passed / row.total) * 100).toFixed(2)) : 0
+  }));
+
+  return res.status(200).json({
+    success: true,
+    data: {
+      facultyId: req.user.facultyId,
+      assignments: allocations.map((row) => ({
+        section: row.section,
+        semester: row.semester,
+        subjectCode: row.subjectCode,
+        subjectName: row.subjectName,
+        academicYear: row.academicYear
+      })),
+      sectionOverview: {
+        totalStudents,
+        averageCgpa: Number(averageCgpa.toFixed(2)),
+        passPercentage: Number(passPercentage.toFixed(2)),
+        studentsWithBacklogs
+      },
+      riskDistribution,
+      sectionPerformance,
+      topStudents,
+      lowAttendanceStudents,
+      subjectPassPercentage,
+      studentsScoped: normalizedStudents
+    }
+  });
+};
+
 export const updateFacultyProfile = async (req, res) => {
   const expertise = Array.isArray(req.body.expertise) ? req.body.expertise : [];
   const payload = {
@@ -494,7 +700,113 @@ export const addTeachingAssignment = async (req, res) => {
     { upsert: true, new: true }
   );
 
+  if (req.user.facultyId) {
+    await SectionAllocation.findOneAndUpdate(
+      {
+        department: req.user.department,
+        section: String(section).toUpperCase(),
+        semester: Number(semester),
+        subject: subjectName,
+        facultyId: String(req.user.facultyId).toUpperCase()
+      },
+      {
+        department: req.user.department,
+        section: String(section).toUpperCase(),
+        semester: Number(semester),
+        academicYear,
+        subject: subjectName,
+        facultyId: String(req.user.facultyId).toUpperCase(),
+        facultyUser: req.user._id
+      },
+      { upsert: true, new: true }
+    );
+  }
+
   return res.status(200).json({ success: true, data: assignment });
+};
+
+export const upsertSectionAllocation = async (req, res) => {
+  const { department, section, semester, subject, facultyId, academicYear } = req.body;
+
+  if (!department || !section || !semester || !subject || !facultyId) {
+    return res.status(400).json({
+      success: false,
+      message: "department, section, semester, subject, and facultyId are required"
+    });
+  }
+
+  const departmentDoc = await resolveDepartment(department);
+  if (!departmentDoc) {
+    return res.status(404).json({ success: false, message: "Department not found" });
+  }
+
+  if (String(req.user?.role) === "hod") {
+    const hodDepartment = req.user?.department ? String(req.user.department) : "";
+    if (!hodDepartment || hodDepartment !== String(departmentDoc._id)) {
+      return res.status(403).json({ success: false, message: "HOD can allocate only within own department" });
+    }
+  }
+
+  const normalizedFacultyId = String(facultyId).trim().toUpperCase();
+  let facultyUser = await User.findOne({ facultyId: normalizedFacultyId }).select("_id facultyId department role");
+
+  if (!facultyUser) {
+    const facultyRow = await Faculty.findOne({ employeeId: normalizedFacultyId }).select("user department");
+    if (facultyRow?.user) {
+      facultyUser = await User.findById(facultyRow.user).select("_id facultyId department role");
+    }
+  }
+
+  if (!facultyUser || String(facultyUser.role) !== "faculty") {
+    return res.status(404).json({ success: false, message: "Faculty not found for provided facultyId" });
+  }
+
+  const normalizedSection = String(section).trim().toUpperCase();
+  const normalizedSemester = Number(semester);
+  const normalizedSubject = String(subject).trim();
+  const normalizedAcademicYear = String(academicYear || "").trim();
+
+  const allocation = await SectionAllocation.findOneAndUpdate(
+    {
+      department: departmentDoc._id,
+      section: normalizedSection,
+      semester: normalizedSemester,
+      subject: normalizedSubject,
+      facultyId: normalizedFacultyId
+    },
+    {
+      department: departmentDoc._id,
+      section: normalizedSection,
+      semester: normalizedSemester,
+      subject: normalizedSubject,
+      facultyId: normalizedFacultyId,
+      facultyUser: facultyUser._id,
+      academicYear: normalizedAcademicYear
+    },
+    { new: true, upsert: true }
+  );
+
+  await TeachingAssignment.findOneAndUpdate(
+    {
+      faculty: facultyUser._id,
+      semester: normalizedSemester,
+      academicYear: normalizedAcademicYear || `${new Date().getFullYear()}-${String((new Date().getFullYear() + 1) % 100).padStart(2, "0")}`,
+      section: normalizedSection,
+      subjectCode: normalizedSubject.replace(/\s+/g, "").slice(0, 8).toUpperCase()
+    },
+    {
+      faculty: facultyUser._id,
+      department: departmentDoc._id,
+      semester: normalizedSemester,
+      academicYear: normalizedAcademicYear || `${new Date().getFullYear()}-${String((new Date().getFullYear() + 1) % 100).padStart(2, "0")}`,
+      section: normalizedSection,
+      subjectCode: normalizedSubject.replace(/\s+/g, "").slice(0, 8).toUpperCase(),
+      subjectName: normalizedSubject
+    },
+    { upsert: true, new: true }
+  );
+
+  return res.status(200).json({ success: true, data: allocation });
 };
 
 export const getSectionStudents = async (req, res) => {
@@ -507,6 +819,14 @@ export const getSectionStudents = async (req, res) => {
   };
 
   if (semester) filter.currentSemester = Number(semester);
+
+  if (req.user.role === "faculty") {
+    const allocations = await getFacultyAllocations(req.user);
+    const allowedSections = new Set(allocations.map((row) => String(row.section || "").toUpperCase()));
+    if (!allowedSections.has(String(section).toUpperCase())) {
+      return res.status(403).json({ success: false, message: "Access denied for this section" });
+    }
+  }
 
   const students = await Student.find(filter).select("_id name rollNo currentSemester section");
   return res.status(200).json({ success: true, data: students });

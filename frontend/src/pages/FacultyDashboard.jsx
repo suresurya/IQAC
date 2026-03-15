@@ -22,6 +22,7 @@ const MENU_ITEMS = [
 
 export default function FacultyDashboard() {
   const [portal, setPortal] = useState(null);
+  const [analytics, setAnalytics] = useState(null);
   const [students, setStudents] = useState([]);
   const [selectedStudent, setSelectedStudent] = useState("");
   const [status, setStatus] = useState("");
@@ -82,12 +83,14 @@ export default function FacultyDashboard() {
   const [recentAttendanceSummary, setRecentAttendanceSummary] = useState([]);
 
   const loadPortal = async () => {
-    const [portalRes, studentsRes] = await Promise.all([client.get("/faculty/portal"), client.get("/students")]);
+    const [portalRes, analyticsRes] = await Promise.all([client.get("/faculty/portal"), client.get("/faculty/dashboard-analytics")]);
 
     const portalData = portalRes.data.data;
-    const studentData = studentsRes.data.data || [];
+    const analyticsData = analyticsRes.data.data || {};
+    const studentData = analyticsData.studentsScoped || [];
 
     setPortal(portalData);
+    setAnalytics(analyticsData);
     setStudents(studentData);
 
     if (studentData.length) {
@@ -109,7 +112,7 @@ export default function FacultyDashboard() {
       expertiseText: fr.researchArea || (p.expertise || []).join(", ")
     });
 
-    const sections = [...new Set([...(portalData?.assignments || []).map((a) => a.section), ...(portalData?.facultyRecord?.sections || [])])];
+    const sections = [...new Set([...(analyticsData?.assignments || []).map((a) => a.section), ...(portalData?.facultyRecord?.sections || [])])];
     if (sections.length && !attendanceSection) {
       setAttendanceSection(sections[0]);
     }
@@ -122,8 +125,8 @@ export default function FacultyDashboard() {
   }, []);
 
   const assignedSections = useMemo(
-    () => [...new Set([...(portal?.assignments || []).map((a) => a.section), ...(portal?.facultyRecord?.sections || [])])],
-    [portal]
+    () => [...new Set([...(analytics?.assignments || []).map((a) => a.section), ...(portal?.facultyRecord?.sections || [])])],
+    [analytics, portal]
   );
 
   const sectionStudents = useMemo(
@@ -151,24 +154,17 @@ export default function FacultyDashboard() {
   }, [attendanceSection, students]);
 
   const statsCards = useMemo(() => {
-    const avgCgpa = sectionStudents.length
-      ? (
-        sectionStudents.reduce((sum, student) => sum + Number(student.metrics?.[student.metrics.length - 1]?.cgpa || 0), 0) / sectionStudents.length
-      ).toFixed(2)
-      : "0.00";
-
+    const overview = analytics?.sectionOverview || {};
+    const avgCgpa = Number(overview.averageCgpa || 0).toFixed(2);
     const attendancePercent = sectionStudents.length
-      ? (
-        sectionStudents.reduce((sum, student) => sum + Number(student.metrics?.[student.metrics.length - 1]?.attendancePercent || 0), 0) / sectionStudents.length
-      ).toFixed(1)
+      ? (sectionStudents.reduce((sum, student) => sum + Number(student.attendance || 0), 0) / sectionStudents.length).toFixed(1)
       : "0.0";
-
-    const riskCount = sectionStudents.filter((s) => ["HIGH", "MEDIUM"].includes(s.riskLevel)).length;
+    const riskCount = Number((analytics?.riskDistribution?.high || 0) + (analytics?.riskDistribution?.medium || 0));
 
     return [
       {
         title: "Total Students in My Sections",
-        value: sectionStudents.length,
+        value: Number(overview.totalStudents || sectionStudents.length),
         trend: "+2.3%",
         trendUp: true,
         color: "from-blue-500/70 via-sky-400/70 to-cyan-300/70"
@@ -195,55 +191,46 @@ export default function FacultyDashboard() {
         color: "from-amber-500/65 via-orange-400/65 to-rose-300/65"
       }
     ];
-  }, [sectionStudents]);
+  }, [analytics, sectionStudents]);
 
   const riskData = useMemo(() => {
-    const high = sectionStudents.filter((s) => s.riskLevel === "HIGH").length;
-    const medium = sectionStudents.filter((s) => s.riskLevel === "MEDIUM").length;
-    const low = sectionStudents.filter((s) => s.riskLevel === "LOW").length;
+    const high = Number(analytics?.riskDistribution?.high || 0);
+    const medium = Number(analytics?.riskDistribution?.medium || 0);
+    const low = Number(analytics?.riskDistribution?.low || 0);
 
     return [
       { name: "High Risk", value: high, color: "#ef4444" },
       { name: "Medium Risk", value: medium, color: "#f97316" },
       { name: "Low Risk", value: low, color: "#16a34a" }
     ];
-  }, [sectionStudents]);
+  }, [analytics]);
 
   const sectionComparisonData = useMemo(() => {
-    const bySection = new Map((portal?.sectionAnalytics || []).map((row) => [String(row.section).toUpperCase(), row]));
-    return ["A", "B", "C"].map((section) => {
-      const row = bySection.get(section);
-      return {
-        section: `Section ${section}`,
-        averageMarks: Number(row?.averageMarks || 0),
-        passPercent: Number(row?.passPercent || 0)
-      };
-    });
-  }, [portal]);
+    const rows = analytics?.sectionPerformance || [];
+    return rows.map((row) => ({
+      section: row.section,
+      averageMarks: Number(row.averageCgpa || 0),
+      passPercent: Number(analytics?.sectionOverview?.passPercentage || 0)
+    }));
+  }, [analytics]);
 
   const topStudents = useMemo(() => {
-    return sectionStudents
-      .map((student) => {
-        const latest = student.metrics?.[student.metrics.length - 1] || {};
-        return {
-          studentId: student._id,
-          name: student.name,
-          rollNo: student.rollNo,
-          cgpa: Number(latest.cgpa || 0),
-          section: student.section
-        };
-      })
-      .sort((a, b) => b.cgpa - a.cgpa)
-      .slice(0, 10);
-  }, [sectionStudents]);
+    return (analytics?.topStudents || []).map((row) => ({
+      studentId: row.studentId,
+      name: row.name,
+      rollNo: row.rollNo,
+      cgpa: Number(row.cgpa || 0),
+      section: row.section
+    }));
+  }, [analytics]);
 
   const lowPerformingStudents = useMemo(
     () => sectionStudents
       .map((student) => ({
         ...student,
-        latestCgpa: Number(student.metrics?.[student.metrics.length - 1]?.cgpa || 0)
+        latestCgpa: Number(student.cgpa || 0)
       }))
-      .filter((student) => student.latestCgpa < 6.5 || ["HIGH", "MEDIUM"].includes(student.riskLevel))
+      .filter((student) => student.latestCgpa < 6.5)
       .sort((a, b) => a.latestCgpa - b.latestCgpa)
       .slice(0, 5),
     [sectionStudents]
@@ -474,7 +461,18 @@ export default function FacultyDashboard() {
               <p className="mt-1 text-sm text-brand-ink/75">Top students, low performing students, and recent attendance summary.</p>
 
               <div className="mt-4 grid gap-3 md:grid-cols-3">
-                <article className="rounded-2xl border border-white/60 bg-white/60 p-4 shadow-sm transition hover:-translate-y-0.5 hover:shadow-md">
+                <article
+                  role="button"
+                  tabIndex={0}
+                  onClick={() => setActiveMenu("Top Students")}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter" || e.key === " ") {
+                      e.preventDefault();
+                      setActiveMenu("Top Students");
+                    }
+                  }}
+                  className="cursor-pointer rounded-2xl border border-white/60 bg-white/60 p-4 shadow-sm transition hover:-translate-y-0.5 hover:shadow-md"
+                >
                   <p className="text-sm font-semibold text-brand-ink">Top Students List</p>
                   <div className="mt-2 space-y-1 text-xs text-brand-ink/75">
                     {topStudents.slice(0, 5).map((row) => (
@@ -482,13 +480,14 @@ export default function FacultyDashboard() {
                     ))}
                     {!topStudents.length && <p>No records</p>}
                   </div>
+                  <p className="mt-3 text-xs font-medium text-brand-ocean">Click to open full Top Students table</p>
                 </article>
 
                 <article className="rounded-2xl border border-white/60 bg-white/60 p-4 shadow-sm transition hover:-translate-y-0.5 hover:shadow-md">
                   <p className="text-sm font-semibold text-brand-ink">Low Performing Students</p>
                   <div className="mt-2 space-y-1 text-xs text-brand-ink/75">
                     {lowPerformingStudents.map((row) => (
-                      <p key={row._id}>{row.rollNo} - {row.name} ({row.latestCgpa})</p>
+                      <p key={row.studentId || row._id}>{row.rollNo} - {row.name} ({row.latestCgpa})</p>
                     ))}
                     {!lowPerformingStudents.length && <p>No records</p>}
                   </div>
@@ -503,6 +502,36 @@ export default function FacultyDashboard() {
                     {!recentAttendanceSummary.length && <p>No records</p>}
                   </div>
                 </article>
+              </div>
+            </section>
+
+            <section className="rounded-3xl border border-white/45 bg-white/45 p-5 shadow-xl shadow-slate-200/35 backdrop-blur-md">
+              <h3 className="font-heading text-xl text-brand-ink">Subject Pass Percentage</h3>
+              <p className="mt-1 text-sm text-brand-ink/75">Pass percentage for subjects assigned to you.</p>
+              <div className="mt-4 overflow-x-auto">
+                <table className="min-w-full text-left text-sm">
+                  <thead className="text-brand-ink/70">
+                    <tr>
+                      <th className="px-3 py-2">Subject Code</th>
+                      <th className="px-3 py-2">Subject Name</th>
+                      <th className="px-3 py-2">Pass %</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {(analytics?.subjectPassPercentage || []).map((row) => (
+                      <tr key={`${row.subjectCode}-${row.subjectName}`} className="border-t border-brand-ink/10">
+                        <td className="px-3 py-2">{row.subjectCode}</td>
+                        <td className="px-3 py-2">{row.subjectName}</td>
+                        <td className="px-3 py-2 font-medium">{row.passPercentage}%</td>
+                      </tr>
+                    ))}
+                    {!(analytics?.subjectPassPercentage || []).length && (
+                      <tr>
+                        <td colSpan={3} className="px-3 py-4 text-center text-brand-ink/60">No subject result data available yet.</td>
+                      </tr>
+                    )}
+                  </tbody>
+                </table>
               </div>
             </section>
           </div>
@@ -629,7 +658,15 @@ export default function FacultyDashboard() {
           </div>
         )}
 
-        {activeMenu === "Top Students" && <TopStudentsTable rows={topStudents} />}
+        {activeMenu === "Top Students" && (
+          <TopStudentsTable
+            rows={topStudents}
+            onRowClick={(row) => {
+              setSelectedStudent(row.studentId);
+              setActiveMenu("Student Performance");
+            }}
+          />
+        )}
 
         {activeMenu === "Student Risk Analysis" && (
           <div className="grid gap-5 xl:grid-cols-2">
@@ -638,14 +675,14 @@ export default function FacultyDashboard() {
               <h3 className="font-heading text-xl text-brand-ink">Risk Student List</h3>
               <div className="mt-4 space-y-2 text-sm">
                 {sectionStudents
-                  .filter((s) => ["HIGH", "MEDIUM"].includes(s.riskLevel))
+                  .filter((s) => Number(s.cgpa || 0) <= 7)
                   .map((s) => (
-                    <div key={s._id} className="rounded-lg bg-white/75 px-3 py-2">
+                    <div key={s.studentId || s._id} className="rounded-lg bg-white/75 px-3 py-2">
                       <p className="font-medium text-brand-ink">{s.rollNo} - {s.name}</p>
-                      <p className="text-brand-ink/70">Section {s.section} | Risk {s.riskLevel}</p>
+                      <p className="text-brand-ink/70">Section {s.section} | CGPA {Number(s.cgpa || 0).toFixed(2)}</p>
                     </div>
                   ))}
-                {!sectionStudents.some((s) => ["HIGH", "MEDIUM"].includes(s.riskLevel)) && <p className="text-brand-ink/60">No risk students currently.</p>}
+                {!sectionStudents.some((s) => Number(s.cgpa || 0) <= 7) && <p className="text-brand-ink/60">No risk students currently.</p>}
               </div>
             </section>
           </div>

@@ -422,7 +422,7 @@ export const getHodDepartmentDashboard = async (req, res) => {
   const [department, students, faculties, marks, placements, studentAchievements, facultyAchievements] = await Promise.all([
     Department.findById(departmentId).select("name code"),
     Student.find({ department: departmentId }).select("_id name rollNo section currentSemester metrics"),
-    Faculty.find({ department: departmentId }).select("name designation publications patents awards achievements"),
+    Faculty.find({ department: departmentId }).select("name employeeId designation publications patents awards achievements"),
     Mark.find({ department: departmentId }).select("subjectCode subjectName semester total passed"),
     Placement.find({ department: departmentId }).sort({ academicYear: -1 }),
     StudentAchievement.find({ department: departmentId }).populate("student", "name rollNo").sort({ date: -1 }).limit(25),
@@ -604,7 +604,8 @@ export const getHodDepartmentDashboard = async (req, res) => {
     .slice(0, 25);
 
   const facultyList = faculties.map((faculty) => ({
-    facultyId: faculty._id,
+    rowId: faculty._id,
+    facultyId: faculty.employeeId || "",
     name: faculty.name,
     designation: faculty.designation || "Assistant Professor",
     publications: Number(faculty.publications || 0),

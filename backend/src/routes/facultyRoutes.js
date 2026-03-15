@@ -4,10 +4,12 @@ import {
 	addResearch,
 	addTeachingAssignment,
 	bulkUploadSectionMarks,
+	getFacultyDashboardAnalytics,
 	getAllFaculty,
 	getFacultyById,
 	getFacultyPortal,
 	getSectionStudents,
+	upsertSectionAllocation,
 	updateFaculty,
 	updateFacultyProfile,
 	uploadAttendance,
@@ -20,11 +22,13 @@ const router = Router();
 router.post("/add", protect, authorize("admin"), addFaculty);
 router.get("/", protect, authorize("admin", "hod", "faculty"), getAllFaculty);
 router.put("/update", protect, authorize("admin", "hod"), updateFaculty);
+router.post("/allocations", protect, authorize("admin", "hod"), upsertSectionAllocation);
 
 router.post("/students/:studentId/marks", protect, authorize("faculty", "hod", "admin"), uploadMarks);
 router.post("/students/:studentId/attendance", protect, authorize("faculty", "hod", "admin"), uploadAttendance);
 router.post("/research", protect, authorize("faculty", "hod", "admin"), addResearch);
 router.get("/portal", protect, authorize("faculty", "hod", "admin"), getFacultyPortal);
+router.get("/dashboard-analytics", protect, authorize("faculty", "hod", "admin"), getFacultyDashboardAnalytics);
 router.put("/profile", protect, authorize("faculty", "hod", "admin"), updateFacultyProfile);
 router.post("/assignments", protect, authorize("faculty", "hod", "admin"), addTeachingAssignment);
 router.get("/sections/:section/students", protect, authorize("faculty", "hod", "admin"), getSectionStudents);

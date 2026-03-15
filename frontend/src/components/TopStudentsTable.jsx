@@ -1,4 +1,4 @@
-export default function TopStudentsTable({ rows }) {
+export default function TopStudentsTable({ rows, onRowClick }) {
   return (
     <section className="rounded-3xl border border-white/45 bg-white/45 p-5 shadow-xl shadow-slate-200/35 backdrop-blur-md">
       <h3 className="font-heading text-xl text-brand-ink">Section Top Students</h3>
@@ -17,7 +17,11 @@ export default function TopStudentsTable({ rows }) {
           </thead>
           <tbody>
             {rows.map((row, idx) => (
-              <tr key={row.studentId} className="border-t border-brand-ink/10">
+              <tr
+                key={row.studentId}
+                className={`border-t border-brand-ink/10 ${onRowClick ? "cursor-pointer hover:bg-brand-sand/50" : ""}`}
+                onClick={() => onRowClick?.(row)}
+              >
                 <td className="px-3 py-2">
                   <span className={`inline-flex h-6 w-6 items-center justify-center rounded-full text-xs font-semibold ${idx === 0 ? "bg-amber-200 text-amber-800" : idx === 1 ? "bg-slate-200 text-slate-700" : idx === 2 ? "bg-orange-200 text-orange-700" : "bg-blue-100 text-blue-700"}`}>
                     {idx + 1}

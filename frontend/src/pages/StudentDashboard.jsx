@@ -54,6 +54,8 @@ export default function StudentDashboard() {
   const cgpaValues = data.cgpaTrend.map((r) => r.cgpa);
   const latestAttendance = data.overview?.attendancePercentage || data.attendance.at(-1)?.percentage || 0;
   const latestBacklog = data.overview?.backlogCount || data.backlogBySemester.at(-1)?.backlogCount || 0;
+  const currentSemesterMetric = data.semesterPerformance.find((row) => Number(row.semester) === Number(data.overview?.semester));
+  const currentSgpa = currentSemesterMetric?.sgpa ?? data.semesterPerformance.at(-1)?.sgpa ?? 0;
   const menu = [
     { key: "dashboard", label: "Dashboard" },
     { key: "attendance", label: "Attendance" },
@@ -98,11 +100,61 @@ export default function StudentDashboard() {
         <StatCard title="Student Name" value={data.overview.studentName} />
         <StatCard title="Roll Number" value={data.overview.rollNumber} accent="from-brand-flame to-brand-ocean" />
         <StatCard title="Department" value={data.student.department?.code || "NA"} accent="from-brand-mint to-brand-ocean" />
+        <StatCard title="Section" value={data.student.section || "NA"} accent="from-brand-mint to-brand-ocean" />
         <StatCard title="Semester" value={data.overview.semester} accent="from-brand-ocean to-brand-flame" />
+        <StatCard title="Current SGPA" value={currentSgpa} accent="from-brand-ocean to-brand-flame" />
         <StatCard title="Current CGPA" value={data.overview.currentCgpa} />
         <StatCard title="Attendance %" value={`${latestAttendance}%`} accent="from-brand-flame to-brand-ocean" />
         <StatCard title="Backlogs" value={latestBacklog} accent="from-brand-ocean to-brand-flame" />
         <StatCard title="Risk" value={data.overview.riskLevel} accent="from-brand-mint to-brand-ocean" />
+      </section>
+
+      <section className="rounded-2xl border border-white/40 bg-white/80 p-4">
+        <h3 className="font-heading text-lg text-brand-ink">Student Details</h3>
+        <div className="mt-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-3 text-sm text-brand-ink">
+          <p><strong>Name:</strong> {data.personalDetails.name}</p>
+          <p><strong>Roll Number:</strong> {data.personalDetails.rollNo}</p>
+          <p><strong>Email:</strong> {data.personalDetails.email}</p>
+          <p><strong>Department:</strong> {data.student.department?.code || data.personalDetails.department || "NA"}</p>
+          <p><strong>Section:</strong> {data.student.section || "NA"}</p>
+          <p><strong>Batch:</strong> {data.student.batch || "NA"}</p>
+          <p><strong>Phone:</strong> {data.personalDetails.phone || "Not available"}</p>
+          <p><strong>Semester:</strong> {data.overview.semester}</p>
+          <p><strong>Academic Mapping:</strong> {`${data.student.department?.code || "NA"} - Section ${data.student.section || "NA"}`}</p>
+        </div>
+      </section>
+
+      <section className="rounded-2xl border border-white/40 bg-white/80 p-4">
+        <h3 className="font-heading text-lg text-brand-ink">Semester-wise SGPA / CGPA</h3>
+        <div className="mt-3 overflow-x-auto">
+          <table className="min-w-full text-left text-sm">
+            <thead className="text-brand-ink/70">
+              <tr>
+                <th className="px-3 py-2">Semester</th>
+                <th className="px-3 py-2">SGPA</th>
+                <th className="px-3 py-2">CGPA</th>
+                <th className="px-3 py-2">Attendance %</th>
+                <th className="px-3 py-2">Backlogs</th>
+              </tr>
+            </thead>
+            <tbody>
+              {(data.semesterPerformance || []).map((row) => (
+                <tr key={`sem-${row.semester}`} className="border-t border-brand-ink/10">
+                  <td className="px-3 py-2">Sem {row.semester}</td>
+                  <td className="px-3 py-2">{row.sgpa}</td>
+                  <td className="px-3 py-2">{row.cgpa}</td>
+                  <td className="px-3 py-2">{row.attendancePercent}%</td>
+                  <td className="px-3 py-2">{row.backlogCount}</td>
+                </tr>
+              ))}
+              {!data.semesterPerformance?.length && (
+                <tr>
+                  <td className="px-3 py-3 text-brand-ink/70" colSpan={5}>No semester performance data available.</td>
+                </tr>
+              )}
+            </tbody>
+          </table>
+        </div>
       </section>
 
       <section className="rounded-2xl border border-white/40 bg-white/80 p-4">

@@ -50,6 +50,14 @@ export default function HodDashboard() {
     highestPackageLPA: 18,
     medianPackageLPA: 7.5
   });
+  const [allocationForm, setAllocationForm] = useState({
+    section: "A",
+    semester: 3,
+    subject: "DBMS",
+    facultyId: "",
+    academicYear: "2025-26"
+  });
+  const [savingAllocation, setSavingAllocation] = useState(false);
 
   useEffect(() => {
     const loadDashboard = async () => {
@@ -140,6 +148,39 @@ export default function HodDashboard() {
       setStatus(err.response?.data?.message || "Unable to generate report");
     } finally {
       setDownloading("");
+    }
+  };
+
+  const saveSectionAllocation = async (e) => {
+    e.preventDefault();
+    if (!effectiveDepartmentId) {
+      setStatus("Department mapping missing for this HOD account.");
+      return;
+    }
+
+    if (!allocationForm.facultyId) {
+      setStatus("Please select a faculty before saving allocation.");
+      return;
+    }
+
+    setSavingAllocation(true);
+    try {
+      await client.post("/faculty/allocations", {
+        department: effectiveDepartmentId,
+        section: allocationForm.section,
+        semester: Number(allocationForm.semester),
+        subject: allocationForm.subject,
+        facultyId: allocationForm.facultyId,
+        academicYear: allocationForm.academicYear
+      });
+
+      setStatus("Section allocation saved successfully.");
+      const refreshed = await client.get(`/departments/${effectiveDepartmentId}/hod-dashboard`);
+      setDashboard(refreshed.data.data);
+    } catch (err) {
+      setStatus(err.response?.data?.message || "Unable to save section allocation");
+    } finally {
+      setSavingAllocation(false);
     }
   };
 
@@ -504,9 +545,10 @@ export default function HodDashboard() {
             <Panel title="Faculty List">
               <div className="grid gap-3 sm:grid-cols-2">
                 {(facultyAnalytics.facultyList || []).map((row) => (
-                  <article key={`${row.facultyId}-card`} className="rounded-xl border border-white/60 bg-white/85 p-3">
+                  <article key={`${row.rowId || row.facultyId}-card`} className="rounded-xl border border-white/60 bg-white/85 p-3">
                     <p className="font-semibold text-brand-ink">{row.name}</p>
                     <p className="mt-1 text-sm text-brand-ink/70">{row.designation}</p>
+                    <p className="text-xs text-brand-ink/60">Faculty ID : {row.facultyId || "N/A"}</p>
                     <p className="mt-2 text-sm text-brand-ink">Publications : {row.publications}</p>
                     <p className="text-sm text-brand-ink">Patents : {row.patents}</p>
                     <p className="text-sm text-brand-ink">Awards : {row.awards}</p>
@@ -521,6 +563,7 @@ export default function HodDashboard() {
                 <table className="min-w-full text-left text-sm">
                   <thead className="text-brand-ink/70">
                     <tr>
+                      <th className="px-3 py-2">Faculty ID</th>
                       <th className="px-3 py-2">Name</th>
                       <th className="px-3 py-2">Designation</th>
                       <th className="px-3 py-2">Publications</th>
@@ -530,7 +573,8 @@ export default function HodDashboard() {
                   </thead>
                   <tbody>
                     {(facultyAnalytics.facultyList || []).map((row) => (
-                      <tr key={row.facultyId} className="border-t border-brand-ink/10 transition hover:bg-white/80">
+                      <tr key={row.rowId || row.facultyId} className="border-t border-brand-ink/10 transition hover:bg-white/80">
+                        <td className="px-3 py-2">{row.facultyId || "N/A"}</td>
                         <td className="px-3 py-2 font-medium">{row.name}</td>
                         <td className="px-3 py-2">{row.designation}</td>
                         <td className="px-3 py-2">{row.publications}</td>
@@ -540,13 +584,62 @@ export default function HodDashboard() {
                     ))}
                     {!(facultyAnalytics.facultyList || []).length && (
                       <tr>
-                        <td colSpan={5} className="px-3 py-5 text-center text-brand-ink/60">No faculty records available for this department.</td>
+                        <td colSpan={6} className="px-3 py-5 text-center text-brand-ink/60">No faculty records available for this department.</td>
                       </tr>
                     )}
                   </tbody>
                 </table>
               </div>
               <p className="mt-3 text-xs text-brand-ink/60">Read-only view: no edit actions are available in HOD department portal.</p>
+            </Panel>
+
+            <Panel title="Create Section Allocation (Admin/HOD)">
+              <p className="mb-3 text-sm text-brand-ink/70">Assign faculty to section and subject so faculty analytics gets populated instantly.</p>
+              <form onSubmit={saveSectionAllocation} className="grid gap-3 md:grid-cols-2">
+                <select
+                  value={allocationForm.facultyId}
+                  onChange={(e) => setAllocationForm((prev) => ({ ...prev, facultyId: e.target.value }))}
+                  className="rounded-lg border border-brand-ink/20 px-3 py-2"
+                >
+                  <option value="">Select Faculty</option>
+                  {(facultyAnalytics.facultyList || []).map((row) => (
+                    <option key={`${row.rowId || row.facultyId}-opt`} value={row.facultyId}>
+                      {row.name} ({row.facultyId || "N/A"})
+                    </option>
+                  ))}
+                </select>
+                <input
+                  value={allocationForm.subject}
+                  onChange={(e) => setAllocationForm((prev) => ({ ...prev, subject: e.target.value }))}
+                  placeholder="Subject"
+                  className="rounded-lg border border-brand-ink/20 px-3 py-2"
+                />
+                <input
+                  value={allocationForm.section}
+                  onChange={(e) => setAllocationForm((prev) => ({ ...prev, section: e.target.value.toUpperCase() }))}
+                  placeholder="Section (A/B/C)"
+                  className="rounded-lg border border-brand-ink/20 px-3 py-2"
+                />
+                <input
+                  type="number"
+                  value={allocationForm.semester}
+                  onChange={(e) => setAllocationForm((prev) => ({ ...prev, semester: Number(e.target.value) }))}
+                  placeholder="Semester"
+                  className="rounded-lg border border-brand-ink/20 px-3 py-2"
+                />
+                <input
+                  value={allocationForm.academicYear}
+                  onChange={(e) => setAllocationForm((prev) => ({ ...prev, academicYear: e.target.value }))}
+                  placeholder="Academic Year"
+                  className="rounded-lg border border-brand-ink/20 px-3 py-2"
+                />
+                <button
+                  disabled={savingAllocation}
+                  className="rounded-lg bg-brand-ink px-4 py-2 text-sm text-white transition hover:scale-[1.02] hover:bg-brand-ocean disabled:opacity-60"
+                >
+                  {savingAllocation ? "Saving..." : "Save Allocation"}
+                </button>
+              </form>
             </Panel>
           </section>
         )}
