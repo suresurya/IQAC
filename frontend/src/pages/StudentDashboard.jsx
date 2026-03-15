@@ -3,6 +3,7 @@ import { Line } from "react-chartjs-2";
 import {
   CategoryScale,
   Chart as ChartJS,
+  Filler,
   Legend,
   LineElement,
   LinearScale,
@@ -14,29 +15,40 @@ import { useAuth } from "../context/AuthContext.jsx";
 import client from "../api/client";
 import StatCard from "../components/StatCard.jsx";
 
-ChartJS.register(CategoryScale, LinearScale, PointElement, LineElement, Tooltip, Legend);
+ChartJS.register(CategoryScale, LinearScale, PointElement, LineElement, Tooltip, Legend, Filler);
 
 export default function StudentDashboard() {
   const { user, logout } = useAuth();
   const navigate = useNavigate();
   const [data, setData] = useState(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState("");
   const [activeMenu, setActiveMenu] = useState("dashboard");
   const [semester, setSemester] = useState("");
+  const studentId = typeof user?.studentProfile === "string" ? user.studentProfile : user?.studentProfile?._id;
 
   const loadDashboard = async (targetSemester) => {
-    if (!user?.studentProfile?._id) return;
+    setLoading(true);
+    setError("");
     const query = targetSemester ? `?semester=${targetSemester}` : "";
-    const res = await client.get(`/students/${user.studentProfile._id}/dashboard${query}`);
-    setData(res.data.data);
+    try {
+      const url = studentId ? `/students/${studentId}/dashboard${query}` : `/students/me/dashboard${query}`;
+      const res = await client.get(url);
+      setData(res.data.data);
+    } catch (err) {
+      setError(err.response?.data?.message || "Unable to load student insights");
+    } finally {
+      setLoading(false);
+    }
   };
 
   useEffect(() => {
-    if (!user?.studentProfile?._id) return;
-
     loadDashboard();
-  }, [user]);
+  }, [studentId]);
 
-  if (!data) return <div className="text-brand-ink">Loading student insights...</div>;
+  if (loading) return <div className="text-brand-ink">Loading student insights...</div>;
+  if (error) return <div className="rounded-lg border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700">{error}</div>;
+  if (!data) return <div className="text-brand-ink">No student data available.</div>;
 
   const cgpaLabels = data.cgpaTrend.map((r) => `Sem ${r.semester}`);
   const cgpaValues = data.cgpaTrend.map((r) => r.cgpa);

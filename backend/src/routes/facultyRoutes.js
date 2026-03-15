@@ -1,10 +1,14 @@
 import { Router } from "express";
 import {
+	addFaculty,
 	addResearch,
 	addTeachingAssignment,
 	bulkUploadSectionMarks,
+	getAllFaculty,
+	getFacultyById,
 	getFacultyPortal,
 	getSectionStudents,
+	updateFaculty,
 	updateFacultyProfile,
 	uploadAttendance,
 	uploadMarks
@@ -12,6 +16,10 @@ import {
 import { authorize, protect } from "../middleware/authMiddleware.js";
 
 const router = Router();
+
+router.post("/add", protect, authorize("admin"), addFaculty);
+router.get("/", protect, authorize("admin", "hod", "faculty"), getAllFaculty);
+router.put("/update", protect, authorize("admin", "hod"), updateFaculty);
 
 router.post("/students/:studentId/marks", protect, authorize("faculty", "hod", "admin"), uploadMarks);
 router.post("/students/:studentId/attendance", protect, authorize("faculty", "hod", "admin"), uploadAttendance);
@@ -21,5 +29,6 @@ router.put("/profile", protect, authorize("faculty", "hod", "admin"), updateFacu
 router.post("/assignments", protect, authorize("faculty", "hod", "admin"), addTeachingAssignment);
 router.get("/sections/:section/students", protect, authorize("faculty", "hod", "admin"), getSectionStudents);
 router.post("/sections/:section/marks/bulk", protect, authorize("faculty", "hod", "admin"), bulkUploadSectionMarks);
+router.get("/:id", protect, authorize("admin", "hod", "faculty"), getFacultyById);
 
 export default router;

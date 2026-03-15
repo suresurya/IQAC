@@ -7,7 +7,7 @@ const facultyAchievementSchema = new mongoose.Schema(
     title: { type: String, required: true },
     category: {
       type: String,
-      enum: ["Publication", "Patent", "Conference", "Workshop", "Award"],
+      enum: ["Publication", "Patent", "Conference", "Workshop", "Award", "Grant"],
       required: true
     },
     level: { type: String, enum: ["College", "State", "National", "International"], required: true },

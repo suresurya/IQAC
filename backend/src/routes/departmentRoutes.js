@@ -6,6 +6,8 @@ import {
   departmentAnalytics,
   getDepartmentAchievements,
   getDepartmentFaculty,
+  getHodDepartmentDashboard,
+  getMyHodDepartmentDashboard,
   getDepartmentOverview,
   getDepartmentPerformanceAnalytics,
   getDepartmentStudents,
@@ -19,7 +21,9 @@ const router = Router();
 
 router.post("/", protect, authorize("admin"), createDepartment);
 router.get("/", protect, authorize("admin", "hod", "faculty"), listDepartments);
+router.get("/me/hod-dashboard", protect, authorize("admin", "hod"), getMyHodDepartmentDashboard);
 router.get("/:departmentId/analytics", protect, authorize("admin", "hod", "faculty"), departmentAnalytics);
+router.get("/:departmentId/hod-dashboard", protect, authorize("admin", "hod"), getHodDepartmentDashboard);
 router.get("/:departmentId/overview", protect, authorize("admin", "hod"), getDepartmentOverview);
 router.get("/:departmentId/students", protect, authorize("admin", "hod"), getDepartmentStudents);
 router.get("/:departmentId/sections", protect, authorize("admin", "hod"), getSectionAnalysis);

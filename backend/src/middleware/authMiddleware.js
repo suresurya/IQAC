@@ -25,7 +25,8 @@ export const protect = async (req, res, next) => {
 
 export const authorize = (...roles) => {
   return (req, res, next) => {
-    if (!roles.includes(req.user.role)) {
+    const normalizedRole = req.user.role === "department" ? "hod" : req.user.role;
+    if (!roles.includes(normalizedRole)) {
       return res.status(403).json({ success: false, message: "Forbidden" });
     }
 

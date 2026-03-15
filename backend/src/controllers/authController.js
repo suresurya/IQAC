@@ -50,6 +50,7 @@ export const login = async (req, res) => {
   let user = await User.findOne({
     $or: [
       { email: identifier.toLowerCase() },
+      { username: identifier.toLowerCase() },
       { registrationNumber: normalizedIdentifier },
       { facultyId: normalizedIdentifier }
     ]
@@ -69,7 +70,20 @@ export const login = async (req, res) => {
     }
   }
 
-  if (!user || !(await user.comparePassword(password))) {
+  let passwordMatches = false;
+
+  if (user) {
+    passwordMatches = await user.comparePassword(password);
+
+    // Compatibility for legacy records where password may have been stored without hashing.
+    if (!passwordMatches && typeof user.password === "string" && !user.password.startsWith("$2") && user.password === password) {
+      user.password = password;
+      await user.save();
+      passwordMatches = true;
+    }
+  }
+
+  if (!user || !passwordMatches) {
     return res.status(401).json({ success: false, message: "Invalid credentials" });
   }
 

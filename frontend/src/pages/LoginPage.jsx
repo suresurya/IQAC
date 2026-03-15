@@ -44,7 +44,11 @@ export default function LoginPage() {
         navigate("/home");
       }
     } catch (err) {
-      setError(err.response?.data?.message || "Login failed");
+      if (err.response?.status === 401) {
+        setError("Invalid credentials. Check email/ID and password, then try again.");
+      } else {
+        setError(err.response?.data?.message || "Login failed");
+      }
     } finally {
       setLoading(false);
     }
@@ -151,7 +155,7 @@ export default function LoginPage() {
         </button>
 
         <p className="mt-4 text-xs text-brand-ink/65">
-          Demo users after seed: admin@iqac.edu, hod.cse@iqac.edu, ravi@student.iqac.edu (password: Admin@123)
+          Demo users: admin@iqac.edu, hod.cse@iqac.edu, faculty.cse@iqac.edu, cse001@student.iqac.edu (password: Admin@123)
         </p>
       </form>
     </div>

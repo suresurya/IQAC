@@ -4,6 +4,7 @@ import {
   createStudent,
   getStudentActivities,
   getStudentAnnouncements,
+  getMyStudentDashboard,
   getStudentAttendance,
   getStudentDashboard,
   getStudentMarks,
@@ -16,6 +17,7 @@ const router = Router();
 
 router.post("/", protect, authorize("admin", "hod"), createStudent);
 router.get("/", protect, authorize("admin", "hod", "faculty"), listStudents);
+router.get("/me/dashboard", protect, authorize("student"), getMyStudentDashboard);
 router.get("/:studentId/profile", protect, authorize("admin", "hod", "faculty", "student"), getStudentProfile);
 router.get("/:studentId/attendance", protect, authorize("admin", "hod", "faculty", "student"), getStudentAttendance);
 router.get("/:studentId/marks", protect, authorize("admin", "hod", "faculty", "student"), getStudentMarks);

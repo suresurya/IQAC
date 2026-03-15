@@ -4,6 +4,7 @@ import Attendance from "../models/Attendance.js";
 import Mark from "../models/Mark.js";
 import StudentActivity from "../models/StudentActivity.js";
 import Announcement from "../models/Announcement.js";
+import User from "../models/User.js";
 import { evaluateRisk } from "../utils/riskEngine.js";
 
 const ensureStudentAccess = (req, student) => {
@@ -88,6 +89,163 @@ export const getStudentDashboard = async (req, res) => {
     return res.status(403).json({ success: false, message: "Forbidden" });
   }
 
+  const attendance = await Attendance.find({ student: studentId }).sort({ semester: 1 });
+  const marks = await Mark.find({ student: studentId }).sort({ semester: 1 });
+  const activities = await StudentActivity.find({ student: studentId }).sort({ date: -1 });
+  const announcements = await Announcement.find({
+    active: true,
+    audienceRoles: { $in: ["student"] },
+    $or: [{ department: student.department?._id }, { department: null }, { department: { $exists: false } }]
+  })
+    .sort({ publishedOn: -1 })
+    .limit(20);
+
+  const latestMetric = student.metrics.at(-1) || {};
+  const currentSemester = Number(req.query.semester || student.currentSemester);
+  const semesterMarks = marks.filter((m) => m.semester === currentSemester);
+  const semesterAttendance = attendance.find((a) => a.semester === currentSemester);
+
+  const totalCredits = marks.reduce((sum, m) => sum + Number(m.credits || 0), 0);
+  const currentCredits = semesterMarks.reduce((sum, m) => sum + Number(m.credits || 0), 0);
+  const requiredCredits = 160;
+  const gpaNumerator = semesterMarks.reduce((sum, m) => sum + gradePointFromGrade(m.grade) * Number(m.credits || 0), 0);
+  const gpaDenominator = semesterMarks.reduce((sum, m) => sum + Number(m.credits || 0), 0);
+  const semesterGpa = gpaDenominator ? Number((gpaNumerator / gpaDenominator).toFixed(2)) : 0;
+
+  const overview = {
+    studentName: student.name,
+    rollNumber: student.rollNo,
+    department: student.department?.name,
+    semester: currentSemester,
+    currentCgpa: latestMetric.cgpa || 0,
+    attendancePercentage: semesterAttendance?.percentage || latestMetric.attendancePercent || 0,
+    backlogCount: latestMetric.backlogCount || 0,
+    riskLevel: student.riskLevel
+  };
+
+  const recommendation =
+    student.riskLevel === "HIGH"
+      ? "Immediate mentoring recommended: focus on attendance recovery, subject remedial sessions, and weekly progress reviews."
+      : student.riskLevel === "MEDIUM"
+        ? "Track closely with bi-weekly faculty reviews and improve consistency in attendance and internal marks."
+        : "Maintain current academic momentum with advanced learning goals and placement-focused preparation.";
+
+  const semesterPerformance = student.metrics.map((m) => ({
+    semester: m.semester,
+    sgpa: m.sgpa,
+    cgpa: m.cgpa,
+    attendancePercent: m.attendancePercent,
+    backlogCount: m.backlogCount
+  }));
+
+  return res.status(200).json({
+    success: true,
+    data: {
+      student,
+      overview,
+      cgpaTrend: student.metrics.map((m) => ({ semester: m.semester, cgpa: m.cgpa })),
+      semesterPerformance,
+      attendance,
+      attendanceBySubject: semesterAttendance?.subjects || [],
+      marks,
+      semesterMarks,
+      internalMarks: semesterMarks.map((m) => ({
+        subjectCode: m.subjectCode,
+        subjectName: m.subjectName,
+        internal: m.internal,
+        passed: m.internal >= 16
+      })),
+      credits: {
+        totalCompleted: totalCredits,
+        currentSemester: currentCredits,
+        requiredForGraduation: requiredCredits
+      },
+      semesterGpa,
+      feeDetails: student.feeDetails || {
+        totalFee: 0,
+        paidAmount: 0,
+        pendingAmount: 0,
+        paymentStatus: "PENDING"
+      },
+      activities,
+      announcements,
+      personalDetails: {
+        name: student.name,
+        rollNo: student.rollNo,
+        department: student.department?.name,
+        email: student.email,
+        phone: student.phone || "",
+        address: student.address || ""
+      },
+      backlogBySemester: student.metrics.map((m) => ({ semester: m.semester, backlogCount: m.backlogCount })),
+      riskLevel: student.riskLevel,
+      recommendation
+    }
+  });
+};
+
+const resolveStudentFromUser = async (user) => {
+  if (!user) return null;
+
+  if (user.studentProfile) {
+    const byProfile = await Student.findById(user.studentProfile).populate("department", "name code");
+    if (byProfile) return byProfile;
+  }
+
+  let byRegistration = null;
+  if (user.registrationNumber) {
+    byRegistration = await Student.findOne({ rollNo: String(user.registrationNumber).toUpperCase() }).populate("department", "name code");
+  }
+
+  const byEmail = byRegistration
+    ? null
+    : await Student.findOne({ email: String(user.email || "").toLowerCase() }).populate("department", "name code");
+
+  const student = byRegistration || byEmail;
+  if (student) {
+    await User.findByIdAndUpdate(user._id, { $set: { studentProfile: student._id } });
+    return student;
+  }
+
+  const normalizedRole = String(user.role || "").toLowerCase() === "department" ? "hod" : String(user.role || "").toLowerCase();
+  if (normalizedRole !== "student") return null;
+
+  const rollNo = user.registrationNumber
+    ? String(user.registrationNumber).toUpperCase()
+    : `STU${String(user._id).slice(-6).toUpperCase()}`;
+
+  const year = new Date().getFullYear();
+  const created = await Student.create({
+    rollNo,
+    name: user.name,
+    email: String(user.email || "").toLowerCase(),
+    department: user.department || undefined,
+    currentSemester: 1,
+    batch: `${year}-${year + 4}`,
+    metrics: [
+      {
+        semester: 1,
+        academicYear: `${year}-${String((year + 1) % 100).padStart(2, "0")}`,
+        sgpa: 0,
+        cgpa: 0,
+        backlogCount: 0,
+        attendancePercent: 0
+      }
+    ],
+    riskLevel: "LOW"
+  });
+
+  await User.findByIdAndUpdate(user._id, { $set: { studentProfile: created._id } });
+  return Student.findById(created._id).populate("department", "name code");
+};
+
+export const getMyStudentDashboard = async (req, res) => {
+  const student = await resolveStudentFromUser(req.user);
+  if (!student) {
+    return res.status(404).json({ success: false, message: "Student profile mapping missing for this account." });
+  }
+
+  const studentId = student._id;
   const attendance = await Attendance.find({ student: studentId }).sort({ semester: 1 });
   const marks = await Mark.find({ student: studentId }).sort({ semester: 1 });
   const activities = await StudentActivity.find({ student: studentId }).sort({ date: -1 });

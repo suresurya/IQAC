@@ -1,5 +1,6 @@
 import { Router } from "express";
 import {
+  adminDepartmentComparison,
   assignFacultyDepartment,
   assignStudentToSection,
   createDepartment,
@@ -20,6 +21,7 @@ router.use(protect, authorize("admin"));
 
 router.get("/entities", listAdminEntities);
 router.get("/analytics", universityAnalytics);
+router.get("/department-comparison", adminDepartmentComparison);
 
 router.post("/departments", createDepartment);
 router.put("/departments/:departmentId", updateDepartment);

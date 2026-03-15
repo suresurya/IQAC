@@ -225,6 +225,47 @@ export const universityAnalytics = async (_, res) => {
   });
 };
 
+export const adminDepartmentComparison = async (_, res) => {
+  const [departments, students, faculties, placements] = await Promise.all([
+    Department.find().sort({ code: 1, name: 1 }),
+    Student.find(),
+    Faculty.find(),
+    Placement.find()
+  ]);
+
+  const rows = departments.map((department) => {
+    const deptStudents = students.filter((student) => String(student.department) === String(department._id));
+    const latestMetrics = deptStudents.map((student) => student.metrics?.at(-1)).filter(Boolean);
+    const deptFaculties = faculties.filter((faculty) => String(faculty.department) === String(department._id));
+    const deptPlacements = placements.filter((placement) => String(placement.department) === String(department._id));
+
+    const passPercentage = latestMetrics.length
+      ? (latestMetrics.filter((metric) => Number(metric.backlogCount || 0) === 0).length / latestMetrics.length) * 100
+      : 0;
+
+    const averageCGPA = latestMetrics.length
+      ? latestMetrics.reduce((sum, metric) => sum + Number(metric.cgpa || 0), 0) / latestMetrics.length
+      : 0;
+
+    const placementRate = deptPlacements.length
+      ? deptPlacements.reduce((sum, placement) => sum + (placement.totalEligible ? (placement.totalPlaced / placement.totalEligible) * 100 : 0), 0) /
+        deptPlacements.length
+      : 0;
+
+    return {
+      departmentId: department._id,
+      department: department.code || department.name,
+      totalStudents: deptStudents.length,
+      totalFaculty: deptFaculties.length,
+      passPercentage: Number(passPercentage.toFixed(2)),
+      averageCGPA: Number(averageCGPA.toFixed(2)),
+      placementRate: Number(placementRate.toFixed(2))
+    };
+  });
+
+  return res.status(200).json({ success: true, data: rows });
+};
+
 export const listAdminEntities = async (_, res) => {
   const [departments, faculties, sectionsRaw, studentsRaw, hodUsers] = await Promise.all([
     Department.find().sort({ name: 1 }),

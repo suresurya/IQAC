@@ -8,7 +8,7 @@ export const AuthProvider = ({ children }) => {
   const [loading, setLoading] = useState(true);
 
   const login = async (email, password, role) => {
-    const payload = { email, password };
+    const payload = { email: String(email || "").trim(), password };
     if (role) payload.role = role;
 
     const { data } = await client.post("/auth/login", payload);
