@@ -17,4 +17,7 @@ const achievementSchema = new mongoose.Schema(
   { timestamps: true }
 );
 
+achievementSchema.index({ department: 1, category: 1, level: 1 });
+achievementSchema.index({ accreditationCriteria: 1 });
+
 export default mainDB.model("Achievement", achievementSchema);

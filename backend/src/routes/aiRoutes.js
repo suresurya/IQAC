@@ -10,7 +10,9 @@ import {
   facultyContributionReport,
   accreditationReadinessAssessment,
   naturalLanguageSearch,
-  streamingSearch
+  streamingSearch,
+  studentIntervention,
+  departmentRanking
 } from "../controllers/aiController.js";
 
 const router = Router();
@@ -27,5 +29,8 @@ router.post("/faculty-contribution",       authorize("admin", "hod", "faculty"),
 router.get("/accreditation-readiness",     authorize("admin", "hod"), accreditationReadinessAssessment);
 router.post("/search",                     authorize("admin", "hod", "faculty"), naturalLanguageSearch);
 router.post("/search-stream",              authorize("admin", "hod", "faculty"), streamingSearch);
+
+router.get("/student-intervention/:id",    authorize("admin", "hod", "faculty"), studentIntervention);
+router.get("/department-ranking",          authorize("admin", "hod", "faculty"), departmentRanking);
 
 export default router;

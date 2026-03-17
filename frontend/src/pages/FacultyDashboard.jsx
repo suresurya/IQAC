@@ -8,6 +8,7 @@ import TopStudentsTable from "../components/TopStudentsTable.jsx";
 import AttendanceManager from "../components/AttendanceManager.jsx";
 import FacultyAchievements from "../components/FacultyAchievements.jsx";
 import FacultyProfile from "../components/FacultyProfile.jsx";
+import NlqSearchBar from "../components/NlqSearchBar.jsx";
 
 const MENU_ITEMS = [
   "Overview",
@@ -29,28 +30,28 @@ export default function FacultyDashboard() {
   const [activeMenu, setActiveMenu] = useState("Overview");
 
   const [markForm, setMarkForm] = useState({
-    subjectCode: "CS401",
-    subjectName: "Data Structures",
-    semester: 4,
-    academicYear: "2025-26",
-    total: 72
+    subjectCode: "",
+    subjectName: "",
+    semester: "",
+    academicYear: "",
+    total: ""
   });
 
   const [attendanceForm, setAttendanceForm] = useState({
-    semester: 4,
-    academicYear: "2025-26",
-    subjectCode: "CS401",
-    subjectName: "Data Structures",
-    classesConducted: 90,
-    classesAttended: 72
+    semester: "",
+    academicYear: "",
+    subjectCode: "",
+    subjectName: "",
+    classesConducted: "",
+    classesAttended: ""
   });
 
   const [assignmentForm, setAssignmentForm] = useState({
-    semester: 4,
-    academicYear: "2025-26",
-    section: "A",
-    subjectCode: "CS401",
-    subjectName: "Data Structures"
+    semester: "",
+    academicYear: "",
+    section: "",
+    subjectCode: "",
+    subjectName: ""
   });
 
   const [selectedAssignment, setSelectedAssignment] = useState("");
@@ -165,28 +166,28 @@ export default function FacultyDashboard() {
       {
         title: "Total Students in My Sections",
         value: Number(overview.totalStudents || sectionStudents.length),
-        trend: "+2.3%",
+        trend: "",
         trendUp: true,
         color: "from-blue-500/70 via-sky-400/70 to-cyan-300/70"
       },
       {
         title: "Average Section CGPA",
         value: avgCgpa,
-        trend: "+0.08",
+        trend: "",
         trendUp: true,
         color: "from-emerald-500/65 via-teal-400/65 to-cyan-300/65"
       },
       {
         title: "Attendance Percentage",
         value: `${attendancePercent}%`,
-        trend: "+1.2%",
+        trend: "",
         trendUp: true,
         color: "from-indigo-500/65 via-violet-400/65 to-fuchsia-300/65"
       },
       {
         title: "Students At Risk",
         value: riskCount,
-        trend: riskCount ? "-0.5%" : "0%",
+        trend: "",
         trendUp: !riskCount,
         color: "from-amber-500/65 via-orange-400/65 to-rose-300/65"
       }
@@ -293,9 +294,9 @@ export default function FacultyDashboard() {
         studentId: student._id,
         rollNo: student.rollNo,
         name: student.name,
-        internal: 20,
-        external: 40,
-        total: 60
+        internal: "",
+        external: "",
+        total: 0
       }))
     );
   };
@@ -449,6 +450,7 @@ export default function FacultyDashboard() {
 
         {activeMenu === "Overview" && (
           <div className="space-y-6">
+            <NlqSearchBar departmentId={portal?.facultyRecord?.department?._id} />
             <FacultyStatsCards stats={statsCards} />
 
             <div className="grid gap-5 xl:grid-cols-2">

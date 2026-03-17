@@ -30,26 +30,91 @@ export const createStudent = async (req, res) => {
 };
 
 export const listStudents = async (req, res) => {
-  const { department, section, academicYear, semester, riskLevel, search } = req.query;
+  const { 
+    department, section, academicYear, semester, riskLevel, search, 
+    cgpaMin, cgpaMax, attendanceMin, backlogsMax,
+    sortBy, order, page = 1, limit = 10 
+  } = req.query;
 
   const filter = {};
   if (department) filter.department = department;
   if (section) filter.section = String(section).toUpperCase();
   if (riskLevel) filter.riskLevel = riskLevel;
-  if (search) filter.$or = [{ name: { $regex: search, $options: "i" } }, { rollNo: { $regex: search, $options: "i" } }];
+  if (semester) filter.currentSemester = Number(semester);
+  if (search) {
+    // Use $text index for performant full-text search
+    filter.$text = { $search: search };
+  }
 
-  const students = await Student.find(filter).populate("department", "name code").sort({ createdAt: -1 });
+  // Fetch all matching base filters first to apply in-memory array filtering
+  let students = await Student.find(filter).populate("department", "name code");
 
-  const enriched = students.filter((student) => {
-    if (!academicYear && !semester) return true;
-    return student.metrics.some((m) => {
-      if (academicYear && m.academicYear !== academicYear) return false;
-      if (semester && m.semester !== Number(semester)) return false;
-      return true;
-    });
+  // Filter based on metrics array (academicYear, cgpa, attendance, backlogs)
+  students = students.filter((student) => {
+    const latest = student.metrics?.at(-1) || {};
+    
+    // Check academicYear
+    if (academicYear) {
+      const hasYear = student.metrics.some((m) => m.academicYear === academicYear);
+      if (!hasYear) return false;
+    }
+
+    // Check CGPA range
+    const cgpa = latest.cgpa || 0;
+    if (cgpaMin && cgpa < Number(cgpaMin)) return false;
+    if (cgpaMax && cgpa > Number(cgpaMax)) return false;
+
+    // Check attendance min
+    const attendance = latest.attendancePercent || 0;
+    if (attendanceMin && attendance < Number(attendanceMin)) return false;
+
+    // Check backlogs max
+    const backlogs = latest.backlogCount || 0;
+    if (backlogsMax !== undefined && backlogs > Number(backlogsMax)) return false;
+
+    return true;
   });
 
-  return res.status(200).json({ success: true, data: enriched });
+  // Sort
+  if (sortBy) {
+    const sortOrder = order === "asc" ? 1 : -1;
+    students.sort((a, b) => {
+      const latestA = a.metrics?.at(-1) || {};
+      const latestB = b.metrics?.at(-1) || {};
+      let valA = 0;
+      let valB = 0;
+
+      if (sortBy === "cgpa") {
+        valA = latestA.cgpa || 0;
+        valB = latestB.cgpa || 0;
+      } else if (sortBy === "attendance") {
+        valA = latestA.attendancePercent || 0;
+        valB = latestB.attendancePercent || 0;
+      } else if (sortBy === "backlogs") {
+        valA = latestA.backlogCount || 0;
+        valB = latestB.backlogCount || 0;
+      }
+
+      return valA < valB ? -sortOrder : valA > valB ? sortOrder : 0;
+    });
+  } else {
+    // Default sort by createdAt desc
+    students.sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
+  }
+
+  // Paginate
+  const total = students.length;
+  const startIndex = (Number(page) - 1) * Number(limit);
+  const endIndex = startIndex + Number(limit);
+  const paginatedStudents = students.slice(startIndex, endIndex);
+
+  return res.status(200).json({ 
+    success: true, 
+    data: paginatedStudents,
+    totalCount: total,
+    page: Number(page),
+    limit: Number(limit)
+  });
 };
 
 export const addSemesterMetric = async (req, res) => {

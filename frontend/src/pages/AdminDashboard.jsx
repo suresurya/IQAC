@@ -6,6 +6,8 @@ import RiskChart from "../components/RiskChart.jsx";
 import DepartmentChart from "../components/DepartmentChart.jsx";
 import AddFacultyDrawer from "../components/AddFacultyDrawer.jsx";
 
+import NlqSearchBar from "../components/NlqSearchBar.jsx";
+
 const NAV_ITEMS = [
   "Overview",
   "Add Department",
@@ -18,6 +20,8 @@ const NAV_ITEMS = [
 export default function AdminDashboard() {
   const [activeItem, setActiveItem] = useState("Overview");
   const [reportMode, setReportMode] = useState("");
+  const [reportType, setReportType] = useState("STUDENT_PROGRESS");
+  const [documentFormat, setDocumentFormat] = useState("PDF");
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [downloadingReport, setDownloadingReport] = useState("");
@@ -58,39 +62,41 @@ export default function AdminDashboard() {
     }
   }, [activeItem]);
 
-  const downloadReport = async (type) => {
+  const downloadReport = async () => {
+    if (!reportType) return;
     setReportStatus("");
-    setDownloadingReport(type);
-
-    const endpointMap = {
-      faculty: "/reports/faculty",
-      department: "/reports/department",
-      student: "/reports/student"
-    };
+    setDownloadingReport(reportType);
 
     try {
-      const res = await client.get(endpointMap[type], {
-        responseType: "blob",
-        params: { format: "PDF" }
+      const payload = { reportType, format: documentFormat };
+      const res = await client.post("/reports/generate", payload, {
+        responseType: "blob"
       });
 
-      const blob = new Blob([res.data], { type: "application/pdf" });
+      const blob = new Blob([res.data], { type: documentFormat === "PDF" ? "application/pdf" : "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" });
       const url = window.URL.createObjectURL(blob);
       const a = document.createElement("a");
-      const nameMap = {
-        faculty: "faculty_accreditation_report.pdf",
-        department: "department_accreditation_report.pdf",
-        student: "student_accreditation_report.pdf"
-      };
+      
+      const ext = documentFormat === "PDF" ? "pdf" : "xlsx";
       a.href = url;
-      a.download = nameMap[type];
+      a.download = `${reportType.toLowerCase()}_report.${ext}`;
       document.body.appendChild(a);
       a.click();
       a.remove();
       window.URL.revokeObjectURL(url);
       setReportStatus("Report downloaded successfully.");
     } catch (error) {
-      setReportStatus(error.response?.data?.message || "Unable to generate report");
+      let msg = "Unable to generate report";
+      try {
+        if (error.response?.data instanceof Blob) {
+          const text = await error.response.data.text();
+          const json = JSON.parse(text);
+          msg = json.message || msg;
+        } else if (error.response?.data?.message) {
+          msg = error.response.data.message;
+        }
+      } catch (_) { /* parsing failed, use default */ }
+      setReportStatus(msg);
     } finally {
       setDownloadingReport("");
     }
@@ -111,29 +117,29 @@ export default function AdminDashboard() {
       {
         title: "Total Students",
         value: String(analytics?.summary?.totalStudents || entities.students?.length || 0),
-        trend: "+4.1%",
+        trend: "",
         trendUp: true,
         color: "from-blue-500/70 via-sky-400/70 to-cyan-300/70"
       },
       {
         title: "Total Faculty",
         value: String(analytics?.summary?.totalFaculties || faculties.length || 0),
-        trend: "+0.12",
+        trend: "",
         trendUp: true,
         color: "from-emerald-500/65 via-teal-400/65 to-cyan-300/65"
       },
       {
         title: "Departments",
         value: String(analytics?.summary?.totalDepartments || entities.departments?.length || 0),
-        trend: "+2.6%",
+        trend: "",
         trendUp: true,
         color: "from-indigo-500/65 via-violet-400/65 to-fuchsia-300/65"
       },
       {
         title: "Faculty Achievements",
         value: String(analytics?.summary?.totalFacultyAchievements || 0),
-        trend: "-0.8%",
-        trendUp: false,
+        trend: "",
+        trendUp: true,
         color: "from-amber-500/65 via-orange-400/65 to-rose-300/65"
       }
     ],
@@ -217,6 +223,7 @@ export default function AdminDashboard() {
 
         {activeItem === "Overview" && (
           <div className="space-y-6">
+            <NlqSearchBar />
             <StatsCards stats={stats} />
 
             <div className="grid gap-5 xl:grid-cols-2">
@@ -302,45 +309,47 @@ export default function AdminDashboard() {
                 {reportStatus && <p className="text-sm text-brand-ink">{reportStatus}</p>}
 
                 {reportMode === "generate" && (
-                  <div className="grid gap-4 md:grid-cols-3">
-                    <article className="rounded-2xl border border-white/55 bg-white/70 p-4 shadow-sm transition hover:-translate-y-1 hover:shadow-md">
-                      <h4 className="font-semibold text-brand-ink">Faculty Report</h4>
-                      <p className="mt-2 text-sm text-brand-ink/75">Generate a detailed report containing faculty performance, publications, achievements, and teaching analytics.</p>
-                      <button
-                        onClick={() => downloadReport("faculty")}
-                        disabled={downloadingReport === "faculty"}
-                        className="mt-4 inline-flex items-center gap-2 rounded-lg bg-gradient-to-r from-[#5f8cff] to-[#a855f7] px-3 py-2 text-sm font-semibold text-white shadow-[0_0_18px_rgba(95,140,255,0.45)] transition hover:scale-[1.03] disabled:opacity-60"
-                      >
-                        <span aria-hidden="true">DL</span>
-                        {downloadingReport === "faculty" ? "Generating..." : "Download Faculty Report"}
-                      </button>
-                    </article>
+                  <div className="rounded-2xl border border-white/55 bg-white/70 p-6 shadow-sm">
+                    <h4 className="font-semibold text-brand-ink">Generate New System Report</h4>
+                    <p className="mt-2 text-sm text-brand-ink/75">Select the report type and format. System will auto-aggregate data and attach LLM analysis where applicable.</p>
+                    
+                    <div className="mt-5 grid max-w-lg gap-4">
+                      <div>
+                        <label className="text-sm font-medium text-brand-ink/80 block mb-1">Report Target</label>
+                        <select 
+                          className="w-full rounded-xl border-brand-ink/20 bg-white/80 p-2 text-sm shadow-sm outline-none focus:border-brand-ocean focus:ring-1 focus:ring-brand-ocean"
+                          value={reportType}
+                          onChange={(e) => setReportType(e.target.value)}
+                        >
+                          <option value="STUDENT_PROGRESS">Student Academic Progress Report</option>
+                          <option value="DEPARTMENT_PERFORMANCE">Department Performance Comparison</option>
+                          <option value="CGPA_DISTRIBUTION">Institution CGPA Distribution Analysis</option>
+                          <option value="BACKLOG_ANALYSIS">Backlog and Risk Analysis Report</option>
+                          <option value="PLACEMENT">Placement Forecast and Statistics</option>
+                          <option value="FACULTY_CONTRIBUTION">Faculty Contribution (NBA Criterion 4)</option>
+                        </select>
+                      </div>
 
-                    <article className="rounded-2xl border border-white/55 bg-white/70 p-4 shadow-sm transition hover:-translate-y-1 hover:shadow-md">
-                      <h4 className="font-semibold text-brand-ink">Department Report</h4>
-                      <p className="mt-2 text-sm text-brand-ink/75">Download department performance with pass percentage, faculty count, and research output summary.</p>
-                      <button
-                        onClick={() => downloadReport("department")}
-                        disabled={downloadingReport === "department"}
-                        className="mt-4 inline-flex items-center gap-2 rounded-lg bg-gradient-to-r from-[#5f8cff] to-[#a855f7] px-3 py-2 text-sm font-semibold text-white shadow-[0_0_18px_rgba(95,140,255,0.45)] transition hover:scale-[1.03] disabled:opacity-60"
-                      >
-                        <span aria-hidden="true">DL</span>
-                        {downloadingReport === "department" ? "Generating..." : "Download Department Report"}
-                      </button>
-                    </article>
+                      <div>
+                        <label className="text-sm font-medium text-brand-ink/80 block mb-1">Export Format</label>
+                        <select 
+                          className="w-full rounded-xl border-brand-ink/20 bg-white/80 p-2 text-sm shadow-sm outline-none focus:border-brand-ocean focus:ring-1 focus:ring-brand-ocean"
+                          value={documentFormat}
+                          onChange={(e) => setDocumentFormat(e.target.value)}
+                        >
+                          <option value="PDF">Professional PDF Document</option>
+                          <option value="EXCEL">Excel Spreadsheet (.xlsx)</option>
+                        </select>
+                      </div>
 
-                    <article className="rounded-2xl border border-white/55 bg-white/70 p-4 shadow-sm transition hover:-translate-y-1 hover:shadow-md">
-                      <h4 className="font-semibold text-brand-ink">Student Report</h4>
-                      <p className="mt-2 text-sm text-brand-ink/75">Download SGPA/CGPA analysis, attendance, backlog trends, and risk-level statistics.</p>
                       <button
-                        onClick={() => downloadReport("student")}
-                        disabled={downloadingReport === "student"}
-                        className="mt-4 inline-flex items-center gap-2 rounded-lg bg-gradient-to-r from-[#5f8cff] to-[#a855f7] px-3 py-2 text-sm font-semibold text-white shadow-[0_0_18px_rgba(95,140,255,0.45)] transition hover:scale-[1.03] disabled:opacity-60"
+                        onClick={downloadReport}
+                        disabled={!!downloadingReport}
+                        className="mt-2 inline-flex items-center justify-center gap-2 rounded-xl bg-gradient-to-r from-brand-ink to-brand-ocean px-4 py-3 text-sm font-semibold text-white shadow-lg transition hover:scale-[1.02] disabled:opacity-60"
                       >
-                        <span aria-hidden="true">DL</span>
-                        {downloadingReport === "student" ? "Generating..." : "Download Student Report"}
+                        {downloadingReport ? "Building Document..." : "Generate and Download"}
                       </button>
-                    </article>
+                    </div>
                   </div>
                 )}
 

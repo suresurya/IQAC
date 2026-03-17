@@ -15,6 +15,7 @@ import {
 } from "recharts";
 import FacultySidebar from "../components/FacultySidebar.jsx";
 import SafeChartContainer from "../components/SafeChartContainer.jsx";
+import NlqSearchBar from "../components/NlqSearchBar.jsx";
 
 const NAV_ITEMS = [
   "Dashboard Overview",
@@ -44,18 +45,18 @@ export default function HodDashboard() {
   const effectiveDepartmentId = dashboard?.department?.id || departmentId;
   const departmentName = typeof user?.department === "object" ? user?.department?.name : "Department";
   const [placementForm, setPlacementForm] = useState({
-    academicYear: "2025-26",
-    totalEligible: 120,
-    totalPlaced: 88,
-    highestPackageLPA: 18,
-    medianPackageLPA: 7.5
+    academicYear: "",
+    totalEligible: "",
+    totalPlaced: "",
+    highestPackageLPA: "",
+    medianPackageLPA: ""
   });
   const [allocationForm, setAllocationForm] = useState({
-    section: "A",
-    semester: 3,
-    subject: "DBMS",
+    section: "",
+    semester: "",
+    subject: "",
     facultyId: "",
-    academicYear: "2025-26"
+    academicYear: ""
   });
   const [savingAllocation, setSavingAllocation] = useState(false);
 
@@ -254,6 +255,10 @@ export default function HodDashboard() {
           </div>
           {status && <p className="mt-4 rounded-lg border border-white/60 bg-white/70 px-3 py-2 text-sm text-brand-ink">{status}</p>}
         </header>
+
+        {(showOverview || showPerformance || showRisk || showSections) && (
+          <NlqSearchBar departmentId={effectiveDepartmentId} />
+        )}
 
         {(showOverview || showPerformance || showRisk || showSections) && (
           <section className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">

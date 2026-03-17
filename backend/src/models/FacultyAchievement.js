@@ -17,4 +17,6 @@ const facultyAchievementSchema = new mongoose.Schema(
   { timestamps: true }
 );
 
+facultyAchievementSchema.index({ department: 1 });
+
 export default mainDB.model("FacultyAchievement", facultyAchievementSchema);

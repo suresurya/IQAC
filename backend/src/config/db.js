@@ -25,11 +25,11 @@ if (attUri && attUri.includes("<attendance_db_password>")) {
 // === 3. Export Top-Level Connections ===
 // These references are created immediately which solves the "Cannot read properties" crash
 export const mainDB = mainUri 
-    ? mongoose.createConnection(mainUri) 
+    ? mongoose.createConnection(mainUri, { maxPoolSize: 50 }) 
     : mongoose.createConnection(); // Fallback empty to avoid undefined crashes on load
 
 export const attendanceDB = attUri 
-    ? mongoose.createConnection(attUri) 
+    ? mongoose.createConnection(attUri, { maxPoolSize: 20 }) 
     : null;
 
 // === 4. Connection Status Logger (called in server.js) ===

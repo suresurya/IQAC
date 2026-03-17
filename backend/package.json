@@ -24,7 +24,7 @@
     "mongodb": "^7.1.0",
     "mongoose": "^8.5.2",
     "morgan": "^1.10.0",
-    "pdfkit": "^0.15.0"
+    "pdfkit": "^0.15.2"
   },
   "devDependencies": {
     "nodemon": "^3.1.4"

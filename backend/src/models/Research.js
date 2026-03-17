@@ -18,4 +18,8 @@ const researchSchema = new mongoose.Schema(
   { timestamps: true }
 );
 
+researchSchema.index({ department: 1 });
+researchSchema.index({ faculty: 1 });
+researchSchema.index({ department: 1, publishedOn: -1 });
+
 export default mainDB.model("Research", researchSchema);

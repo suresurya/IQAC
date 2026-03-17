@@ -1,12 +1,8 @@
 import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
+import axios from "axios";
 
-const METRICS = [
-  { label: "Students Analyzed", value: 1200, suffix: "+" },
-  { label: "Faculty Insights", value: 85, suffix: "" },
-  { label: "Departments Monitored", value: 12, suffix: "" },
-  { label: "Automated Reports Generated", value: 50, suffix: "+" }
-];
+const API_BASE = import.meta.env.VITE_API_BASE_URL || "http://localhost:5000/api";
 
 const MODULES = [
   {
@@ -99,17 +95,17 @@ function MiniLineChart() {
   );
 }
 
-function MiniRiskCards() {
-  const risks = [
-    { label: "High Risk", value: "14%", color: "bg-[#ff595e]" },
-    { label: "Medium", value: "33%", color: "bg-[#ffca3a]" },
-    { label: "Low", value: "53%", color: "bg-[#2ec4b6]" }
+function MiniRiskCards({ risks }) {
+  const data = [
+    { label: "High Risk", value: `${risks.high || 0}%`, color: "bg-[#ff595e]" },
+    { label: "Medium", value: `${risks.medium || 0}%`, color: "bg-[#ffca3a]" },
+    { label: "Low", value: `${risks.low || 0}%`, color: "bg-[#2ec4b6]" }
   ];
 
   return (
     <div className="space-y-2 rounded-xl border border-white/15 bg-[#0b1423]/90 p-3">
       <p className="text-xs text-slate-300">Student Risk Analysis</p>
-      {risks.map((risk) => (
+      {data.map((risk) => (
         <div key={risk.label} className="flex items-center justify-between rounded-lg bg-white/5 px-3 py-2">
           <div className="flex items-center gap-2">
             <span className={`h-2.5 w-2.5 rounded-full ${risk.color}`} />
@@ -122,14 +118,14 @@ function MiniRiskCards() {
   );
 }
 
-function MiniPlacement() {
+function MiniPlacement({ rate }) {
   return (
     <div className="rounded-xl border border-white/15 bg-[#0b1423]/90 p-3">
       <p className="text-xs text-slate-300">Placement Statistics</p>
       <div className="mt-3 flex items-center gap-4">
         <div className="relative h-16 w-16 rounded-full border-4 border-[#2ec4b6]/25">
           <div className="absolute inset-0 rounded-full border-4 border-transparent border-t-[#2ec4b6] border-r-[#2ec4b6]" />
-          <span className="absolute inset-0 grid place-items-center text-xs font-semibold">87%</span>
+          <span className="absolute inset-0 grid place-items-center text-xs font-semibold">{rate}%</span>
         </div>
         <div>
           <p className="text-sm font-semibold">Placement Success Rate</p>
@@ -141,6 +137,24 @@ function MiniPlacement() {
 }
 
 export default function LandingPage() {
+  const [liveStats, setLiveStats] = useState(null);
+
+  useEffect(() => {
+    axios.get(`${API_BASE}/analytics/public-stats`)
+      .then(res => setLiveStats(res.data.data))
+      .catch(() => null);
+  }, []);
+
+  const metrics = [
+    { label: "Students Analyzed", value: liveStats?.totalStudents || 0, suffix: "+" },
+    { label: "Faculty Insights", value: liveStats?.totalFaculties || 0, suffix: "" },
+    { label: "Departments Monitored", value: liveStats?.totalDepartments || 0, suffix: "" },
+    { label: "Automated Reports Generated", value: liveStats?.totalResearch || 0, suffix: "+" }
+  ];
+
+  const riskPercent = liveStats?.riskDistribution || { high: 0, medium: 0, low: 0 };
+  const placementRate = liveStats?.placementRate || 0;
+
   return (
     <div className="relative min-h-screen overflow-hidden bg-[#050b16] text-white">
       <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_10%_20%,rgba(76,201,240,0.15),transparent_35%),radial-gradient(circle_at_82%_12%,rgba(127,90,240,0.2),transparent_35%),radial-gradient(circle_at_70%_72%,rgba(31,191,117,0.14),transparent_35%)]" />
@@ -187,10 +201,10 @@ export default function LandingPage() {
                 <span className="rounded-full bg-[#2ec4b6]/20 px-2 py-1 text-[10px] font-semibold uppercase text-[#87f6e2]">Live AI</span>
               </div>
               <div className="grid gap-3 sm:grid-cols-2">
-                <MiniRiskCards />
+                <MiniRiskCards risks={riskPercent} />
                 <MiniLineChart />
                 <div className="sm:col-span-2">
-                  <MiniPlacement />
+                  <MiniPlacement rate={placementRate} />
                 </div>
               </div>
             </div>
@@ -200,7 +214,7 @@ export default function LandingPage() {
         <section className="mt-14">
           <h3 className="text-sm uppercase tracking-[0.22em] text-slate-300">University Impact Metrics</h3>
           <div className="mt-4 grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
-            {METRICS.map((metric) => (
+            {metrics.map((metric) => (
               <CounterCard key={metric.label} label={metric.label} value={metric.value} suffix={metric.suffix} />
             ))}
           </div>
@@ -279,7 +293,7 @@ export default function LandingPage() {
               <div className="mt-5 flex items-center gap-5">
                 <div className="relative h-24 w-24 rounded-full border-[10px] border-[#2ec4b6]/20">
                   <div className="absolute inset-0 rounded-full border-[10px] border-transparent border-r-[#2ec4b6] border-t-[#2ec4b6]" />
-                  <span className="absolute inset-0 grid place-items-center text-lg font-bold">87%</span>
+                  <span className="absolute inset-0 grid place-items-center text-lg font-bold">{placementRate}%</span>
                 </div>
                 <div className="text-sm text-slate-300">
                   <p className="font-semibold text-white">Placement season active</p>

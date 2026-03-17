@@ -7,6 +7,7 @@ import TeachingAssignment from "../models/TeachingAssignment.js";
 import Department from "../models/Department.js";
 import Faculty from "../models/Faculty.js";
 import SectionAllocation from "../models/SectionAllocation.js";
+import StudentEvent from "../models/StudentEvent.js";
 import mongoose from "mongoose";
 
 const splitList = (value) => {
@@ -884,4 +885,31 @@ export const bulkUploadSectionMarks = async (req, res) => {
     message: `Section ${String(section).toUpperCase()} marks uploaded`,
     data: { upserted }
   });
+};
+
+export const addStudentEvent = async (req, res) => {
+  const { studentId } = req.params;
+  const student = await Student.findById(studentId);
+  if (!student) {
+    return res.status(404).json({ success: false, message: "Student not found" });
+  }
+
+  const { eventName, eventType, level, participationType, date, academicYear } = req.body;
+  if (!eventName || !eventType || !level || !participationType || !date || !academicYear) {
+    return res.status(400).json({ success: false, message: "Missing required fields for event" });
+  }
+
+  const event = await StudentEvent.create({
+    student: student._id,
+    department: student.department,
+    eventName: String(eventName).trim(),
+    eventType,
+    level,
+    participationType,
+    date: new Date(date),
+    academicYear,
+    enteredBy: req.user._id
+  });
+
+  return res.status(201).json({ success: true, data: event });
 };

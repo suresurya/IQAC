@@ -7,7 +7,10 @@ import {
   generatePlacementForecast,
   generateFacultyContributionSummary,
   generateAccreditationReadinessAssessment,
-  answerNaturalLanguageQuery
+  answerNaturalLanguageQuery,
+  generateStudentInterventionAdvice,
+  generateDepartmentRanking,
+  buildStreamingSearchPrompt
 } from "../services/llmService.js";
 
 import Student from "../models/Student.js";
@@ -76,33 +79,54 @@ export const studentProgressReport = async (req, res) => {
     ? semesterWise.reduce((w, s) => s.passPercent < w.passPercent ? s : w, semesterWise[0])
     : { semester: 1, passPercent: 0 };
 
+  // Calculate top and bottom departments dynamically from MongoDB
+  const deptCgpaMap = {};
+  students.forEach(s => {
+    const dCode = s.department?.code || "UNKNOWN";
+    const m = getLatestMetric(s);
+    if (m) {
+      if (!deptCgpaMap[dCode]) deptCgpaMap[dCode] = { sum: 0, count: 0 };
+      deptCgpaMap[dCode].sum += m.cgpa;
+      deptCgpaMap[dCode].count++;
+    }
+  });
+  const deptAvgs = Object.entries(deptCgpaMap).map(([code, d]) => ({ code, avg: d.sum / d.count }));
+  deptAvgs.sort((a, b) => b.avg - a.avg);
+  const topDepartment = deptAvgs.length > 0 ? deptAvgs[0].code : "N/A";
+  const bottomDepartment = deptAvgs.length > 0 ? deptAvgs[deptAvgs.length - 1].code : "N/A";
+
   const data = {
     totalStudents: total, highRisk: highRisk, mediumRisk: medRisk, lowRisk: lowRisk,
     averageCgpa, attendanceShortage: shortage, totalBacklogs,
-    semesterWise, worstSemester, topDepartment: "CSE", bottomDepartment: "MECH"
+    semesterWise, worstSemester, topDepartment, bottomDepartment
   };
 
   const analysis = await generateStudentProgressAnalysis(data);
 
-  const rows = [
-    { Metric: "Total Students", Value: total },
-    { Metric: "High Risk", Value: highRisk },
-    { Metric: "Medium Risk", Value: medRisk },
-    { Metric: "Low Risk", Value: lowRisk },
-    { Metric: "Avg CGPA", Value: averageCgpa },
-    { Metric: "Attendance Shortage", Value: shortage },
-    { Metric: "Total Backlogs", Value: totalBacklogs },
-    { Metric: "Worst Semester", Value: `Semester ${worstSemester.semester} (${worstSemester.passPercent}% pass)` },
-    { Metric: "AI Analysis", Value: analysis }
+  const content = [
+    { type: "section", label: "Executive Summary" },
+    { type: "stats", data: [
+      { label: "Total Students", value: total },
+      { label: "High Risk Students", value: `${highRisk} (${Math.round(highRisk/total*100)}%)` },
+      { label: "Average CGPA", value: averageCgpa },
+      { label: "NBA Compliance (CGPA >= 6.5)", value: averageCgpa >= 6.5 ? "COMPLIANT" : "NON-COMPLIANT" },
+      { label: "Attendance Shortage (<75%)", value: shortage },
+      { label: "Total Backlogs", value: totalBacklogs },
+      { label: "Top Performing Dept", value: topDepartment },
+      { label: "Development Need Dept", value: bottomDepartment }
+    ]},
+    { type: "section", label: "Semester-wise Trends" },
+    { type: "table", 
+      headers: ["Semester", "Avg CGPA", "Avg Attendance", "Pass %"],
+      rows: semesterWise.map(s => [s.semester, s.averageCgpa, `${s.averageAttendance}%`, `${s.passPercent}%`])
+    },
+    { type: "ai", data: analysis }
   ];
 
-  const pdfBuffer = await buildPdfBuffer(`IQAC Student Progress Report — ${new Date().toLocaleDateString()}`, rows);
+  const pdfBuffer = await buildPdfBuffer("Student Progress Analysis Report", content);
   await ReportLog.create({ reportType: "STUDENT_PROGRESS", generatedBy: req.user._id, format: "PDF" });
 
-  res.set({
-    "Content-Type": "application/pdf",
-    "Content-Disposition": `attachment; filename=student_progress_${Date.now()}.pdf`
-  });
+  res.set({ "Content-Type": "application/pdf", "Content-Disposition": `attachment; filename=student_progress_${Date.now()}.pdf` });
   res.send(pdfBuffer);
 };
 
@@ -134,27 +158,36 @@ export const departmentPerformanceReport = async (req, res) => {
 
     return {
       name: dept.name, code: dept.code,
-      averageCgpa: avgCgpa, passPercent: parseFloat(passPercent), backlogRate: parseFloat(backlogRate),
-      placementRate: parseFloat(placementRate), researchCount: dResearch.length, achievementCount: 0, score
+      averageCgpa: avgCgpa, passPercent, backlogRate,
+      placementRate, researchCount: dResearch.length, score
     };
-  }).filter(d => d.averageCgpa > 0);
+  }).filter(d => d.averageCgpa > 0).sort((a,b) => b.score - a.score);
 
   const analysis = await generateDepartmentPerformanceAnalysis(deptData);
 
-  const rows = deptData.sort((a, b) => b.score - a.score).map((d, i) => ({
-    Rank: i + 1, Department: `${d.name} (${d.code})`,
-    CGPA: d.averageCgpa, PassPct: `${d.passPercent}%`,
-    Placement: `${d.placementRate}%`, Research: d.researchCount, Score: d.score
-  }));
-  rows.push({ Rank: "AI Analysis", Department: analysis });
+  const content = [
+    { type: "section", label: "Department Ranking Summary" },
+    { type: "table",
+      headers: ["Rank", "Department", "Score", "Avg CGPA", "Pass %", "Placement %", "Research"],
+      rows: deptData.map((d, i) => [i + 1, `${d.name} (${d.code})`, d.score, d.averageCgpa, `${d.passPercent}%`, `${d.placementRate}%`, d.researchCount]),
+      options: { colWidths: [40, 150, 60, 60, 60, 60, 60] }
+    },
+    { type: "section", label: "Accreditation Benchmarking" },
+    { type: "table",
+      headers: ["Department", "NBA Status (Pass >= 60%)", "NBA Status (CGPA >= 6.5)"],
+      rows: deptData.map(d => [
+        d.code, 
+        d.passPercent >= 60 ? "COMPLIANT" : "FAIL",
+        d.averageCgpa >= 6.5 ? "COMPLIANT" : "FAIL"
+      ])
+    },
+    { type: "ai", data: analysis }
+  ];
 
-  const pdfBuffer = await buildPdfBuffer("Department Performance Comparative Report", rows);
+  const pdfBuffer = await buildPdfBuffer("Department Performance Comparative Analysis", content);
   await ReportLog.create({ reportType: "DEPARTMENT_PERFORMANCE", generatedBy: req.user._id, format: "PDF" });
 
-  res.set({
-    "Content-Type": "application/pdf",
-    "Content-Disposition": `attachment; filename=department_performance_${Date.now()}.pdf`
-  });
+  res.set({ "Content-Type": "application/pdf", "Content-Disposition": `attachment; filename=dept_performance_${Date.now()}.pdf` });
   res.send(pdfBuffer);
 };
 
@@ -178,17 +211,16 @@ export const cgpaDistributionAnalysis = async (req, res) => {
     eight_to_nine: cgpas.filter(c => c >= 8 && c < 9).length,
     above_nine: cgpas.filter(c => c >= 9).length,
     averageCgpa: cgpas.length > 0 ? +(cgpas.reduce((a, b) => a + b, 0) / cgpas.length).toFixed(2) : 0,
-    medianCgpa,
+    medianCgpa, median: medianCgpa,
+    highestCgpa: Math.max(...cgpas, 0),
+    lowestCgpa: Math.min(...cgpas, 0),
     belowNBAThreshold: cgpas.filter(c => c < 6.5).length,
     totalStudents: total
   };
 
   const analysis = await generateCGPADistributionAnalysis(distribution);
 
-  res.json({
-    success: true,
-    data: { distribution, analysis, averageCgpa: distribution.averageCgpa, medianCgpa, belowNBAThreshold: distribution.belowNBAThreshold }
-  });
+  res.json({ success: true, data: { distribution, analysis } });
 };
 
 // ─── CONTROLLER 4: Backlog Analysis Report (PDF) ─────────────────
@@ -213,38 +245,74 @@ export const backlogAnalysisReport = async (req, res) => {
     else threePlus++;
 
     const dName = s.department?.name || "Unknown";
-    if (!deptMap[dName]) deptMap[dName] = { totalBacklogs: 0, studentsAffected: 0 };
-    if (bc > 0) { deptMap[dName].totalBacklogs += bc; deptMap[dName].studentsAffected++; }
+    const dCode = s.department?.code || "UNK";
+    if (!deptMap[dCode]) deptMap[dCode] = { name: dName, totalBacklogs: 0, studentsAffected: 0, totalStudents: 0, cgpaSum: 0 };
+    deptMap[dCode].totalStudents++;
+    if (bc > 0) { 
+      deptMap[dCode].totalBacklogs += bc; 
+      deptMap[dCode].studentsAffected++; 
+      deptMap[dCode].cgpaSum += (m?.cgpa || 0);
+      offenders.push({ 
+        rollNo: s.rollNo, name: s.name, code: dCode, sem: s.currentSemester, 
+        backlogs: bc, cgpa: m?.cgpa || 0, att: m?.attendancePercent || 0, risk: s.riskLevel 
+      });
+    }
 
     (s.metrics || []).forEach(metric => {
       if ((metric.backlogCount || 0) > 0) {
-        if (!semMap[metric.semester]) semMap[metric.semester] = 0;
-        semMap[metric.semester]++;
+        if (!semMap[metric.semester]) semMap[metric.semester] = { count: 0, totalBacklogs: 0 };
+        semMap[metric.semester].count++;
+        semMap[metric.semester].totalBacklogs += metric.backlogCount;
       }
     });
-
-    if (bc > 0) offenders.push({ rollNo: s.rollNo, name: s.name, department: dName, cgpa: m?.cgpa || 0, backlogCount: bc });
   });
 
-  const backlogData = {
+  const cleanPassRate = (noBacklog / total * 100).toFixed(1);
+  const analysis = await generateBacklogAnalysis({
     summary: { studentsWithNoBacklogs: noBacklog, studentsWithOneBacklog: oneBacklog, studentsWithTwoBacklogs: twoBacklog, studentsWithThreePlus: threePlus },
-    byDepartment: Object.entries(deptMap).map(([dept, d]) => ({ department: dept, ...d })),
-    bySemester: Object.entries(semMap).map(([s, c]) => ({ semester: +s, studentsWithBacklogs: c })),
-    topOffenders: offenders.sort((a, b) => b.backlogCount - a.backlogCount).slice(0, 10),
-    totalStudents: total
-  };
+    byDepartment: Object.entries(deptMap).map(([code, d]) => ({ department: d.name, totalBacklogs: d.totalBacklogs, studentsAffected: d.studentsAffected })),
+    bySemester: Object.entries(semMap).map(([s, d]) => ({ semester: +s, studentsWithBacklogs: d.count })),
+    totalStudents: total,
+    topOffenders: offenders.sort((a,b) => b.backlogs - a.backlogs || a.cgpa - b.cgpa).slice(0, 50)
+  });
 
-  const analysis = await generateBacklogAnalysis(backlogData);
-
-  const rows = [
-    { Metric: "No Backlogs", Value: noBacklog },
-    { Metric: "1 Backlog", Value: oneBacklog },
-    { Metric: "2 Backlogs", Value: twoBacklog },
-    { Metric: "3+ Backlogs", Value: threePlus },
-    { Metric: "AI Analysis", Value: analysis }
+  const content = [
+    { type: "section", label: "Institutional Backlog Summary" },
+    { type: "stats", data: [
+      { label: "Total Students", value: total },
+      { label: "Zero Backlogs (Clean Pass)", value: `${noBacklog} (${cleanPassRate}%)` },
+      { label: "Students with 1 Backlog", value: oneBacklog },
+      { label: "Students with 2 Backlogs", value: twoBacklog },
+      { label: "Students with 3+ Backlogs", value: threePlus },
+      { label: "Severity Status", value: cleanPassRate < 70 ? "CRITICAL" : cleanPassRate < 85 ? "MODERATE" : "MANAGEABLE" }
+    ]},
+    { type: "section", label: "Department-wise Breakdown" },
+    ...Object.entries(deptMap).map(([code, d]) => ({
+      type: "stats", data: [
+        { label: `${d.name} (${code})`, value: "" },
+        { label: "  Affected Students", value: `${d.studentsAffected} / ${d.totalStudents}` },
+        { label: "  Total Backlogs", value: d.totalBacklogs },
+        { label: "  Average CGPA (Affected)", value: d.studentsAffected > 0 ? (d.cgpaSum / d.studentsAffected).toFixed(2) : "N/A" }
+      ]
+    })),
+    { type: "section", label: "Semester-wise Concentration" },
+    { type: "table",
+      headers: ["Semester", "Students with Backlogs", "Avg Backlogs / Student"],
+      rows: Object.entries(semMap).sort((a,b) => b[1].count - a[1].count).map(([sem, d]) => [sem, d.count, (d.totalBacklogs/d.count).toFixed(2)])
+    },
+    { type: "section", label: "Critical At-Risk Student Register" },
+    { type: "table",
+      headers: ["Roll No", "Name", "Dept", "Sem", "Backlogs", "CGPA", "Attendance", "Risk"],
+      rows: offenders.map(o => [o.rollNo, o.name, o.code, o.sem, o.backlogs, o.cgpa, `${o.att}%`, o.risk]),
+      options: { 
+        colWidths: [70, 100, 40, 40, 50, 40, 60, 60],
+        highlights: { 4: (val) => val >= 3 } // Highlight 3+ backlogs in red
+      }
+    },
+    { type: "ai", data: analysis }
   ];
 
-  const pdfBuffer = await buildPdfBuffer("Backlog Analysis Report", rows);
+  const pdfBuffer = await buildPdfBuffer("Institutional Backlog & At-Risk Analysis Report", content);
   await ReportLog.create({ reportType: "BACKLOG_ANALYSIS", generatedBy: req.user._id, format: "PDF" });
 
   res.set({ "Content-Type": "application/pdf", "Content-Disposition": `attachment; filename=backlog_analysis_${Date.now()}.pdf` });
@@ -257,49 +325,69 @@ export const placementForecastReport = async (req, res) => {
 
   let totalElig = 0, totalPlaced = 0, topPkg = 0, medSum = 0;
   const recruiterFreq = {};
+  const yearMap = {};
+  const deptMap = {};
 
-  const byDepartment = placements.map(p => {
+  placements.forEach(p => {
     totalElig += p.totalEligible;
     totalPlaced += p.totalPlaced;
     if (p.highestPackageLPA > topPkg) topPkg = p.highestPackageLPA;
     if (p.medianPackageLPA > 0) medSum += p.medianPackageLPA;
     (p.majorRecruiters || []).forEach(r => { recruiterFreq[r] = (recruiterFreq[r] || 0) + 1; });
-    return {
-      department: p.department?.name || "Unknown",
-      academicYear: p.academicYear,
-      totalEligible: p.totalEligible,
-      totalPlaced: p.totalPlaced,
-      placementRate: p.totalEligible > 0 ? +(p.totalPlaced / p.totalEligible * 100).toFixed(1) : 0,
-      highestPackageLPA: p.highestPackageLPA || 0,
-      medianPackageLPA: p.medianPackageLPA || 0
-    };
+
+    if (!yearMap[p.academicYear]) yearMap[p.academicYear] = { elig: 0, placed: 0, hi: 0, med: 0, count: 0 };
+    yearMap[p.academicYear].elig += p.totalEligible;
+    yearMap[p.academicYear].placed += p.totalPlaced;
+    yearMap[p.academicYear].hi = Math.max(yearMap[p.academicYear].hi, p.highestPackageLPA);
+    yearMap[p.academicYear].med += p.medianPackageLPA;
+    yearMap[p.academicYear].count++;
+
+    const dCode = p.department?.code || "UNK";
+    if (!deptMap[dCode]) deptMap[dCode] = { name: p.department?.name || "Unknown", years: [] };
+    deptMap[dCode].years.push(p);
   });
 
-  const topRecruiters = Object.entries(recruiterFreq).sort((a, b) => b[1] - a[1]).map(([r]) => r);
+  const topRecruiters = Object.entries(recruiterFreq).sort((a, b) => b[1] - a[1]);
+  const sortedYears = Object.entries(yearMap).sort((a,b) => a[0].localeCompare(b[0]));
 
-  const placementData = {
-    institutionSummary: {
-      totalEligible: totalElig,
-      totalPlaced: totalPlaced,
-      overallPlacementRate: totalElig > 0 ? +(totalPlaced / totalElig * 100).toFixed(1) : 0,
-      topPackage: topPkg,
-      averageMedianPackage: placements.length > 0 ? +(medSum / placements.length).toFixed(2) : 0
+  const analysis = await generatePlacementForecast({
+    institutionSummary: { totalEligible: totalElig, totalPlaced: totalPlaced, overallPlacementRate: (totalPlaced/totalElig*100).toFixed(1), topPackage: topPkg, averageMedianPackage: (medSum/placements.length).toFixed(2) },
+    byDepartment: placements.map(p => ({ department: p.department?.name, placementRate: (p.totalPlaced/p.totalEligible*100).toFixed(1), academicYear: p.academicYear })),
+    topRecruiters: topRecruiters.map(r => r[0])
+  });
+
+  const content = [
+    { type: "section", label: "Placement Executive Summary" },
+    { type: "stats", data: [
+      { label: "Total Eligible Students", value: totalElig },
+      { label: "Total Placed Students", value: totalPlaced },
+      { label: "Overall Placement Rate", value: `${(totalPlaced/totalElig*100).toFixed(1)}%` },
+      { label: "Highest Package (LPA)", value: `${topPkg} LPA` },
+      { label: "Average Median Package", value: `${(medSum/placements.length).toFixed(2)} LPA` },
+      { label: "Unique Recruiters Count", value: Object.keys(recruiterFreq).length }
+    ]},
+    { type: "section", label: "Academic Year Comparison" },
+    { type: "table",
+      headers: ["Year", "Eligible", "Placed", "Rate %", "Highest", "Median"],
+      rows: sortedYears.map(([year, d]) => [
+        year, d.elig, d.placed, `${(d.placed/d.elig*100).toFixed(1)}%`, `${d.hi} LPA`, `${(d.med/d.count).toFixed(2)} LPA`
+      ])
     },
-    byDepartment,
-    topRecruiters
-  };
-
-  const analysis = await generatePlacementForecast(placementData);
-
-  const rows = [
-    { Metric: "Total Eligible", Value: totalElig },
-    { Metric: "Total Placed", Value: totalPlaced },
-    { Metric: "Placement Rate", Value: `${placementData.institutionSummary.overallPlacementRate}%` },
-    { Metric: "Top Package", Value: `${topPkg} LPA` },
-    { Metric: "AI Forecast", Value: analysis }
+    { type: "section", label: "Department-wise Performance" },
+    ...Object.entries(deptMap).map(([code, d]) => ({
+      type: "table",
+      headers: [`${d.name} (${code})`, "Eligible", "Placed", "Rate %", "Highest", "Recruiters"],
+      rows: d.years.map(y => [y.academicYear, y.totalEligible, y.totalPlaced, `${(y.totalPlaced/y.totalEligible*100).toFixed(1)}%`, `${y.highestPackageLPA} LPA`, y.majorRecruiters.slice(0,2).join(", ")])
+    })),
+    { type: "section", label: "Top Recruiting Companies" },
+    { type: "table", 
+      headers: ["Company Name", "Dept Count", "Total Estimated Hires"],
+      rows: topRecruiters.slice(0, 15).map(r => [r[0], r[1], "N/A"])
+    },
+    { type: "ai", data: analysis }
   ];
 
-  const pdfBuffer = await buildPdfBuffer("Placement Report and Forecast", rows);
+  const pdfBuffer = await buildPdfBuffer("Institutional Placement & Career Analytics", content);
   await ReportLog.create({ reportType: "PLACEMENT", generatedBy: req.user._id, format: "PDF" });
 
   res.set({ "Content-Type": "application/pdf", "Content-Disposition": `attachment; filename=placement_forecast_${Date.now()}.pdf` });
@@ -308,56 +396,150 @@ export const placementForecastReport = async (req, res) => {
 
 // ─── CONTROLLER 6: Faculty Contribution Report (PDF) ─────────────
 export const facultyContributionReport = async (req, res) => {
-  const { departmentId } = req.body;
-  let researchQuery = {};
-  if (departmentId) researchQuery.department = departmentId;
-
-  const [publications, totalFaculty, deptDoc] = await Promise.all([
-    Research.find(researchQuery).populate("faculty", "name").populate("department", "name").lean(),
+  const [publications, totalFaculty, departments] = await Promise.all([
+    Research.find().populate("faculty", "name").populate("department", "name code").lean(),
     User.countDocuments({ role: "faculty" }),
-    departmentId ? Department.findById(departmentId).lean() : Promise.resolve(null)
+    Department.find().lean()
   ]);
 
   const byType = {};
   const byFacultyMap = {};
+  const deptPubs = {};
+
   publications.forEach(p => {
     byType[p.publicationType] = (byType[p.publicationType] || 0) + 1;
-    const fname = p.faculty?.name || "Unknown";
-    byFacultyMap[fname] = (byFacultyMap[fname] || 0) + 1;
+    const fId = String(p.faculty?._id || "Unknown");
+    if (!byFacultyMap[fId]) byFacultyMap[fId] = { name: p.faculty?.name || "Unknown", Journal: 0, Conference: 0, Patent: 0, Book: 0, Total: 0, dept: p.department?.name };
+    byFacultyMap[fId][p.publicationType === "Book Chapter" ? "Book" : p.publicationType]++;
+    byFacultyMap[fId].Total++;
+
+    const dCode = p.department?.code || "UNK";
+    if (!deptPubs[dCode]) deptPubs[dCode] = { name: p.department?.name, count: 0, types: {} };
+    deptPubs[dCode].count++;
+    deptPubs[dCode].types[p.publicationType] = (deptPubs[dCode].types[p.publicationType] || 0) + 1;
   });
 
-  const facultyData = {
-    department: deptDoc?.name || "All Departments",
-    totalFaculty,
-    publications: publications.slice(0, 5).map(p => ({
-      faculty: p.faculty?.name || "Unknown",
-      title: p.title,
-      publicationType: p.publicationType,
-      journalOrConference: p.journalOrConference || ""
-    })),
+  const analysis = await generateFacultyContributionSummary({
+    department: "All Departments",
+    totalFaculty, totalPublications: publications.length,
     byType,
-    byFaculty: Object.entries(byFacultyMap).map(([faculty, count]) => ({ faculty, count })),
-    totalPublications: publications.length
-  };
+    byFaculty: Object.values(byFacultyMap).map(f => ({ faculty: f.name, count: f.Total })),
+    publications: publications.slice(0, 5)
+  });
 
-  const analysis = await generateFacultyContributionSummary(facultyData);
-
-  const rows = [
-    { Metric: "Department", Value: facultyData.department },
-    { Metric: "Total Faculty", Value: totalFaculty },
-    { Metric: "Total Publications", Value: publications.length },
-    { Metric: "Journals", Value: byType.Journal || 0 },
-    { Metric: "Conferences", Value: byType.Conference || 0 },
-    { Metric: "Patents", Value: byType.Patent || 0 },
-    { Metric: "AI Assessment", Value: analysis }
+  const content = [
+    { type: "section", label: "Research Output Executive Summary" },
+    { type: "stats", data: [
+      { label: "Total Institutional Publications", value: publications.length },
+      { label: "Total Faculty Count", value: totalFaculty },
+      { label: "Publications per Faculty Ratio", value: (publications.length / totalFaculty).toFixed(2) },
+      { label: "NBA Benchmark (1 per 3 years)", value: (totalFaculty / 3).toFixed(1) },
+      { label: "NBA Compliance Status", value: (publications.length / totalFaculty) >= 0.33 ? "COMPLIANT" : "NON-COMPLIANT" }
+    ]},
+    { type: "section", label: "Publication Type Breakdown" },
+    { type: "table",
+      headers: ["Type", "Count", "Percentage", "NBA Weight"],
+      rows: Object.entries(byType).map(([type, count]) => [
+        type, count, `${(count/publications.length*100).toFixed(1)}%`, 
+        type === "Journal" ? "High (SJR/JCR)" : type === "Patent" ? "High (IPR)" : "Moderate"
+      ])
+    },
+    { type: "section", label: "Department-wise Output" },
+    { type: "table", 
+      headers: ["Department", "Total Pubs", "Ratio", "Primary Type"],
+      rows: Object.entries(deptPubs).map(([code, d]) => [
+        d.name, d.count, "N/A", 
+        Object.entries(d.types).sort((a,b) => b[1] - a[1])[0][0]
+      ])
+    },
+    { type: "section", label: "Faculty-wise Contribution Register" },
+    { type: "table",
+      headers: ["Faculty Name", "Department", "Journal", "Conf", "Patent", "Total", "% of Total"],
+      rows: Object.values(byFacultyMap).sort((a,b) => b.Total - a.Total).map(f => [
+        f.name, f.dept, f.Journal, f.Conference, f.Patent, f.Total, `${(f.Total/publications.length*100).toFixed(1)}%`
+      ]),
+      options: {
+        colWidths: [100, 100, 50, 50, 50, 50, 60]
+      }
+    },
+    { type: "section", label: "Recent Publications (Last 50)" },
+    { type: "table",
+      headers: ["Title", "Author", "Type", "Venue", "Date"],
+      rows: publications.slice(0, 50).map(p => [
+        p.title.substring(0, 40) + "...", p.faculty?.name, p.publicationType, p.journalOrConference?.substring(0, 20), p.publishedOn ? new Date(p.publishedOn).toLocaleDateString() : "N/A"
+      ]),
+      options: { colWidths: [150, 80, 70, 80, 60] }
+    },
+    { type: "ai", data: analysis }
   ];
 
-  const pdfBuffer = await buildPdfBuffer(`Faculty Contribution Report — ${facultyData.department}`, rows);
+  const pdfBuffer = await buildPdfBuffer("Faculty Research Contribution & Accreditation Report", content);
   await ReportLog.create({ reportType: "FACULTY_CONTRIBUTION", generatedBy: req.user._id, format: "PDF" });
 
   res.set({ "Content-Type": "application/pdf", "Content-Disposition": `attachment; filename=faculty_contribution_${Date.now()}.pdf` });
   res.send(pdfBuffer);
 };
+
+
+// ─── NEW CONTROLLER 9: Student Intervention Advice (JSON) ─────────
+export const studentIntervention = async (req, res) => {
+  const { id } = req.params;
+  const student = await Student.findById(id).populate("department", "name").lean();
+  if (!student) return res.status(404).json({ success: false, message: "Student not found" });
+
+  const m = getLatestMetric(student);
+  const trend = (student.metrics || []).map(x => `Sem${x.semester}:${x.cgpa}`).join(" ");
+
+  const advice = await generateStudentInterventionAdvice({
+    name: student.name,
+    rollNo: student.rollNo,
+    department: student.department?.name,
+    currentSemester: student.currentSemester,
+    riskLevel: student.riskLevel,
+    cgpa: m?.cgpa || 0,
+    attendance: m?.attendancePercent || 0,
+    backlogs: m?.backlogCount || 0,
+    cgpaTrend: trend
+  });
+
+  res.json({ success: true, data: { advice, student } });
+};
+
+// ─── NEW CONTROLLER 10: Department Ranking (JSON) ─────────────────
+export const departmentRanking = async (req, res) => {
+  const [departments, allStudents, allPlacements, allResearch] = await Promise.all([
+    Department.find().lean(),
+    Student.find().lean(),
+    Placement.find().populate("department", "name code").lean(),
+    Research.find().lean()
+  ]);
+
+  const deptData = departments.map(dept => {
+    const sid = String(dept._id);
+    const ds = allStudents.filter(s => String(s.department) === sid);
+    const metrics = ds.map(s => getLatestMetric(s)).filter(Boolean);
+    const dPlacements = allPlacements.filter(p => String(p.department?._id || p.department) === sid);
+    const dResearch = allResearch.filter(r => String(r.department) === sid);
+
+    const avgCgpa = metrics.length ? +(metrics.reduce((a, m) => a + m.cgpa, 0) / metrics.length).toFixed(2) : 0;
+    const passPercent = metrics.length ? +(metrics.filter(m => m.backlogCount === 0).length / metrics.length * 100).toFixed(1) : 0;
+    
+    let totalElig = 0, totalPlaced = 0;
+    dPlacements.forEach(p => { totalElig += p.totalEligible; totalPlaced += p.totalPlaced; });
+    const placementRate = totalElig > 0 ? +(totalPlaced / totalElig * 100).toFixed(1) : 0;
+
+    const score = +(avgCgpa * 10 * 0.35 + passPercent * 0.35 + placementRate * 0.3).toFixed(2);
+
+    return {
+      name: dept.name, code: dept.code, studentCount: ds.length,
+      averageCgpa: avgCgpa, passPercent, placementRate, researchCount: dResearch.length, score
+    };
+  }).filter(d => d.averageCgpa > 0).sort((a,b) => b.score - a.score);
+
+  const rankingText = await generateDepartmentRanking(deptData);
+  res.json({ success: true, data: { departments: deptData, rankingText } });
+};
+
 
 // ─── CONTROLLER 7: Accreditation Readiness (JSON) ────────────────
 export const accreditationReadinessAssessment = async (req, res) => {
@@ -449,7 +631,16 @@ export const naturalLanguageSearch = async (req, res) => {
       naacReadiness: naacItems.length > 0 ? +(naacCompleted / naacItems.length * 100).toFixed(1) : 0,
       pendingNBA: nbaItems.length - nbaCompleted,
       pendingNAAC: naacItems.length - naacCompleted
-    }
+    },
+    topStudents: [...students]
+      .filter(s => getLatestMetric(s))
+      .sort((a, b) => (getLatestMetric(b)?.cgpa || 0) - (getLatestMetric(a)?.cgpa || 0))
+      .slice(0, 5)
+      .map(s => ({ name: s.name, rollNo: s.rollNo, cgpa: getLatestMetric(s)?.cgpa || 0 })),
+    highRiskStudents: students
+      .filter(s => s.riskLevel === "HIGH")
+      .slice(0, 5)
+      .map(s => ({ name: s.name, cgpa: getLatestMetric(s)?.cgpa || 0, attendance: getLatestMetric(s)?.attendancePercent || 0 }))
   };
 
   const answer = await answerNaturalLanguageQuery(question, databaseSummary);
@@ -489,6 +680,7 @@ export const streamingSearch = async (req, res) => {
   const nbaCompleted = nbaItems.filter(i => i.completed).length;
   const naacCompleted = naacItems.filter(i => i.completed).length;
 
+  // Build compact databaseSummary same as Job 8
   const deptSummaries = departments.map(dept => {
     const sid = String(dept._id);
     const ds = students.filter(s => String(s.department) === sid);
@@ -504,20 +696,29 @@ export const streamingSearch = async (req, res) => {
     };
   });
 
-  const deptStr = deptSummaries.map(d => `${d.code}:CGPA${d.averageCgpa},Pass${d.passPercent}%,Place${d.placementRate}%`).join(' | ');
 
-  const prompt = `IQAC database facts:
-Students: ${students.length} total (High risk: ${highRisk}, Medium: ${medRisk}, Low: ${lowRisk})
-Avg CGPA: ${avgCgpa}, Attendance shortage: ${shortage} students below 75%
-Departments: ${deptStr}
-NBA readiness: ${nbaItems.length > 0 ? +(nbaCompleted/nbaItems.length*100).toFixed(1) : 0}%, NAAC: ${naacItems.length > 0 ? +(naacCompleted/naacItems.length*100).toFixed(1) : 0}%
+  const databaseSummary = {
+    totalStudents: students.length, highRiskCount: highRisk, mediumRiskCount: medRisk, lowRiskCount: lowRisk,
+    averageCgpa: avgCgpa, attendanceShortageCount: shortage,
+    departments: deptSummaries,
+    accreditation: {
+      nbaReadiness: nbaItems.length > 0 ? +(nbaCompleted / nbaItems.length * 100).toFixed(1) : 0,
+      naacReadiness: naacItems.length > 0 ? +(naacCompleted / naacItems.length * 100).toFixed(1) : 0
+    },
+    topStudents: [...students]
+      .filter(s => getLatestMetric(s))
+      .sort((a, b) => (getLatestMetric(b)?.cgpa || 0) - (getLatestMetric(a)?.cgpa || 0))
+      .slice(0, 5)
+      .map(s => ({ name: s.name, rollNo: s.rollNo, cgpa: getLatestMetric(s)?.cgpa || 0 })),
+    highRiskStudents: students.filter(s => s.riskLevel === "HIGH").slice(0, 5)
+      .map(s => ({ name: s.name, cgpa: getLatestMetric(s)?.cgpa || 0, attendance: getLatestMetric(s)?.attendancePercent || 0 }))
+  };
 
-Question: "${question}"
-
-Answer in maximum 2 sentences using ONLY the facts above.
-First sentence: direct answer with specific number from the data.
-Second sentence: brief context or implication.
-If insufficient data: reply "Insufficient data available for this query."`;
+  const q = question.trim().toLowerCase();
+  let prompt = question;
+  if (!["hello", "hi", "hey", "who are you", "what are you", "test", "ok"].includes(q)) {
+      prompt = buildStreamingSearchPrompt(question, databaseSummary);
+  }
 
   // Set SSE headers
   res.set({
@@ -536,7 +737,7 @@ If insufficient data: reply "Insufficient data available for this query."`;
         model: "mistral:latest",
         prompt,
         stream: true,
-        options: { num_predict: 100, temperature: 0.3, top_p: 0.9 }
+        options: { num_predict: 80, temperature: 0.3, top_p: 0.9 }
       })
     });
 

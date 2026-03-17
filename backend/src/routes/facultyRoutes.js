@@ -3,6 +3,7 @@ import {
 	addFaculty,
 	addResearch,
 	addTeachingAssignment,
+	addStudentEvent,
 	bulkUploadSectionMarks,
 	getFacultyDashboardAnalytics,
 	getAllFaculty,
@@ -26,6 +27,7 @@ router.post("/allocations", protect, authorize("admin", "hod"), upsertSectionAll
 
 router.post("/students/:studentId/marks", protect, authorize("faculty", "hod", "admin"), uploadMarks);
 router.post("/students/:studentId/attendance", protect, authorize("faculty", "hod", "admin"), uploadAttendance);
+router.post("/students/:studentId/event", protect, authorize("faculty", "hod", "admin"), addStudentEvent);
 router.post("/research", protect, authorize("faculty", "hod", "admin"), addResearch);
 router.get("/portal", protect, authorize("faculty", "hod", "admin"), getFacultyPortal);
 router.get("/dashboard-analytics", protect, authorize("faculty", "hod", "admin"), getFacultyDashboardAnalytics);

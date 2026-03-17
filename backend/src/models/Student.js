@@ -40,4 +40,13 @@ const studentSchema = new mongoose.Schema(
   { timestamps: true }
 );
 
+// Compound indexes for analytics query patterns
+studentSchema.index({ department: 1, section: 1 });
+studentSchema.index({ department: 1, riskLevel: 1 });
+// Text index for full-text search (replaces $regex)
+studentSchema.index({ name: "text", rollNo: "text", email: "text" });
+// Multikey indexes for embedded metrics array filtering
+studentSchema.index({ "metrics.academicYear": 1 });
+studentSchema.index({ "metrics.semester": 1 });
+
 export default mainDB.model("Student", studentSchema);

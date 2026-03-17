@@ -6,13 +6,14 @@ export const addAccreditationItem = async (req, res) => {
 };
 
 export const listAccreditationItems = async (req, res) => {
-  const { type, criterion, department, academicYear, completed } = req.query;
+  const { type, criterion, department, academicYear, completed, accreditationCriteria } = req.query;
   const filter = {};
 
   if (type) filter.type = type;
   if (criterion) filter.criterion = criterion;
   if (department) filter.department = department;
   if (academicYear) filter.academicYear = academicYear;
+  if (accreditationCriteria) filter.criterion = accreditationCriteria;
   if (typeof completed !== "undefined") filter.completed = completed === "true";
 
   const items = await AccreditationItem.find(filter).populate("department", "name code").sort({ createdAt: -1 });

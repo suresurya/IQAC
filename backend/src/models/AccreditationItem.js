@@ -16,4 +16,7 @@ const accreditationItemSchema = new mongoose.Schema(
   { timestamps: true }
 );
 
+accreditationItemSchema.index({ type: 1, academicYear: 1 });
+accreditationItemSchema.index({ department: 1 });
+
 export default mainDB.model("AccreditationItem", accreditationItemSchema);
