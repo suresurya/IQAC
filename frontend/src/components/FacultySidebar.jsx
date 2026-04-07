@@ -56,10 +56,10 @@ const MENU_ICONS = {
   )
 };
 
-export default function FacultySidebar({ items, active, onChange }) {
+export default function FacultySidebar({ items, active, onChange, title = "Faculty Portal" }) {
   return (
     <aside className="sticky top-6 h-fit rounded-3xl border border-white/55 bg-white/70 p-5 shadow-xl shadow-slate-200/40 backdrop-blur-md">
-      <p className="text-xs uppercase tracking-[0.18em] text-brand-ink/60">Faculty Portal</p>
+      <p className="text-xs uppercase tracking-[0.18em] text-brand-ink/60">{title}</p>
       <nav className="mt-6 space-y-2">
         {items.map((item) => {
           const isActive = active === item;

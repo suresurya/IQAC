@@ -59,6 +59,10 @@ export default function HodDashboard() {
     academicYear: ""
   });
   const [savingAllocation, setSavingAllocation] = useState(false);
+  const [riskStudents, setRiskStudents] = useState([]);
+  const [riskStudentsLoading, setRiskStudentsLoading] = useState(false);
+  const [studentRows, setStudentRows] = useState([]);
+  const [studentsLoading, setStudentsLoading] = useState(false);
 
   useEffect(() => {
     const loadDashboard = async () => {
@@ -223,6 +227,32 @@ export default function HodDashboard() {
     };
   }, [facultyAnalytics]);
 
+  useEffect(() => {
+    if (activeItem !== "Student Risk Analysis" || !effectiveDepartmentId) return;
+
+    setRiskStudentsLoading(true);
+    client
+      .get(`/departments/${effectiveDepartmentId}/risk-students`)
+      .then((res) => setRiskStudents(res.data?.data || []))
+      .catch((err) => {
+        setStatus((prev) => prev || err.response?.data?.message || "Unable to load risk students");
+      })
+      .finally(() => setRiskStudentsLoading(false));
+  }, [activeItem, effectiveDepartmentId]);
+
+  useEffect(() => {
+    if (activeItem !== "Student Performance" || !effectiveDepartmentId) return;
+
+    setStudentsLoading(true);
+    client
+      .get(`/departments/${effectiveDepartmentId}/students`)
+      .then((res) => setStudentRows(res.data?.data || []))
+      .catch((err) => {
+        setStatus((prev) => prev || err.response?.data?.message || "Unable to load department students");
+      })
+      .finally(() => setStudentsLoading(false));
+  }, [activeItem, effectiveDepartmentId]);
+
   const showOverview = activeItem === "Dashboard Overview";
   const showRisk = activeItem === "Student Risk Analysis";
   const showPerformance = activeItem === "Student Performance";
@@ -238,7 +268,7 @@ export default function HodDashboard() {
 
   return (
     <div className="grid min-h-[78vh] gap-6 lg:grid-cols-[260px,1fr]">
-      <FacultySidebar items={NAV_ITEMS} active={activeItem} onChange={setActiveItem} />
+      <FacultySidebar items={NAV_ITEMS} active={activeItem} onChange={setActiveItem} title="HOD Department Dashboard" />
 
       <section className="space-y-6 rounded-3xl bg-[radial-gradient(circle_at_12%_20%,rgba(14,165,233,0.12),transparent_34%),radial-gradient(circle_at_88%_12%,rgba(16,185,129,0.12),transparent_30%),linear-gradient(180deg,rgba(255,255,255,0.6),rgba(248,251,255,0.9))] p-1">
         <header className="rounded-3xl border border-white/60 bg-white/65 p-6 shadow-xl shadow-slate-200/45 backdrop-blur-md transition duration-300 hover:shadow-2xl">
@@ -340,6 +370,94 @@ export default function HodDashboard() {
               </SafeChartContainer>
             </Panel>
           </div>
+        )}
+
+        {showPerformance && (
+          <Panel title="Department Students (MongoDB)">
+            {studentsLoading && <p className="text-sm text-brand-ink/70">Loading students...</p>}
+            {!studentsLoading && (
+              <div className="overflow-x-auto">
+                <table className="min-w-full text-left text-sm">
+                  <thead className="text-brand-ink/70">
+                    <tr>
+                      <th className="px-3 py-2">Roll Number</th>
+                      <th className="px-3 py-2">Name</th>
+                      <th className="px-3 py-2">Section</th>
+                      <th className="px-3 py-2">Semester</th>
+                      <th className="px-3 py-2">CGPA</th>
+                      <th className="px-3 py-2">Attendance %</th>
+                      <th className="px-3 py-2">Backlogs</th>
+                      <th className="px-3 py-2">At Risk</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {studentRows.map((row) => (
+                      <tr key={row._id} className="border-t border-brand-ink/10 transition hover:bg-white/80">
+                        <td className="px-3 py-2">{row.rollNo}</td>
+                        <td className="px-3 py-2 font-medium">{row.name}</td>
+                        <td className="px-3 py-2">{row.section}</td>
+                        <td className="px-3 py-2">{row.semester}</td>
+                        <td className="px-3 py-2">{row.cgpa}</td>
+                        <td className="px-3 py-2">{row.attendancePercent}</td>
+                        <td className="px-3 py-2">{row.backlogs}</td>
+                        <td className="px-3 py-2">{row.atRisk ? "Yes" : "No"}</td>
+                      </tr>
+                    ))}
+                    {!studentRows.length && !studentsLoading && (
+                      <tr>
+                        <td colSpan={8} className="px-3 py-5 text-center text-brand-ink/60">
+                          No students found for this department in MongoDB.
+                        </td>
+                      </tr>
+                    )}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </Panel>
+        )}
+
+        {showRisk && (
+          <Panel title="At-Risk Students (MongoDB)">
+            {riskStudentsLoading && <p className="text-sm text-brand-ink/70">Loading at-risk students...</p>}
+            {!riskStudentsLoading && (
+              <div className="overflow-x-auto">
+                <table className="min-w-full text-left text-sm">
+                  <thead className="text-brand-ink/70">
+                    <tr>
+                      <th className="px-3 py-2">Roll Number</th>
+                      <th className="px-3 py-2">Name</th>
+                      <th className="px-3 py-2">Section</th>
+                      <th className="px-3 py-2">Semester</th>
+                      <th className="px-3 py-2">CGPA</th>
+                      <th className="px-3 py-2">Attendance %</th>
+                      <th className="px-3 py-2">Backlogs</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {riskStudents.map((row) => (
+                      <tr key={row._id} className="border-t border-brand-ink/10 transition hover:bg-white/80">
+                        <td className="px-3 py-2">{row.rollNo}</td>
+                        <td className="px-3 py-2 font-medium">{row.name}</td>
+                        <td className="px-3 py-2">{row.section}</td>
+                        <td className="px-3 py-2">{row.semester}</td>
+                        <td className="px-3 py-2">{row.cgpa}</td>
+                        <td className="px-3 py-2">{row.attendancePercent}</td>
+                        <td className="px-3 py-2">{row.backlogs}</td>
+                      </tr>
+                    ))}
+                    {!riskStudents.length && !riskStudentsLoading && (
+                      <tr>
+                        <td colSpan={7} className="px-3 py-5 text-center text-brand-ink/60">
+                          No at-risk students found for this department in MongoDB.
+                        </td>
+                      </tr>
+                    )}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </Panel>
         )}
 
         {(showOverview || showPerformance) && (

@@ -677,14 +677,22 @@ export default function FacultyDashboard() {
               <h3 className="font-heading text-xl text-brand-ink">Risk Student List</h3>
               <div className="mt-4 space-y-2 text-sm">
                 {sectionStudents
-                  .filter((s) => Number(s.cgpa || 0) <= 7)
+                  .filter((s) =>
+                    s.riskLevel === "HIGH" ||
+                    s.riskLevel === "MEDIUM" ||
+                    (s.riskLevel == null && Number(s.cgpa || 0) <= 7)
+                  )
                   .map((s) => (
                     <div key={s.studentId || s._id} className="rounded-lg bg-white/75 px-3 py-2">
                       <p className="font-medium text-brand-ink">{s.rollNo} - {s.name}</p>
                       <p className="text-brand-ink/70">Section {s.section} | CGPA {Number(s.cgpa || 0).toFixed(2)}</p>
                     </div>
                   ))}
-                {!sectionStudents.some((s) => Number(s.cgpa || 0) <= 7) && <p className="text-brand-ink/60">No risk students currently.</p>}
+                {!sectionStudents.some((s) =>
+                  s.riskLevel === "HIGH" ||
+                  s.riskLevel === "MEDIUM" ||
+                  (s.riskLevel == null && Number(s.cgpa || 0) <= 7)
+                ) && <p className="text-brand-ink/60">No risk students currently.</p>}
               </div>
             </section>
           </div>

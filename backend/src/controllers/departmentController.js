@@ -12,6 +12,7 @@ import DepartmentStat from "../models/DepartmentStat.js";
 import StudentAchievement from "../models/StudentAchievement.js";
 import FacultyAchievement from "../models/FacultyAchievement.js";
 import Faculty from "../models/Faculty.js";
+import { evaluateRisk } from "../utils/riskEngine.js";
 
 export const createDepartment = async (req, res) => {
   const department = await Department.create(req.body);
@@ -465,10 +466,20 @@ export const getHodDepartmentDashboard = async (req, res) => {
 
   const riskDistribution = latestMetrics.reduce(
     (acc, row) => {
-      const cgpa = Number(row.metric.cgpa || 0);
-      if (cgpa < 5) acc.high += 1;
-      else if (cgpa <= 7) acc.medium += 1;
-      else acc.low += 1;
+      const metric = row.metric || {};
+      const base = {
+        attendancePercent: Number(metric.attendancePercent || 0),
+        backlogCount: Number(metric.backlogCount || 0),
+        cgpa: Number(metric.cgpa || 0),
+        previousCgpa: undefined
+      };
+
+      const effectiveRisk = row.student.riskLevel || evaluateRisk(base);
+
+      if (effectiveRisk === "HIGH") acc.high += 1;
+      else if (effectiveRisk === "MEDIUM") acc.medium += 1;
+      else if (effectiveRisk === "LOW") acc.low += 1;
+
       return acc;
     },
     { high: 0, medium: 0, low: 0 }

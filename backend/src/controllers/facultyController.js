@@ -9,6 +9,7 @@ import Faculty from "../models/Faculty.js";
 import SectionAllocation from "../models/SectionAllocation.js";
 import StudentEvent from "../models/StudentEvent.js";
 import mongoose from "mongoose";
+import { evaluateRisk } from "../utils/riskEngine.js";
 
 const splitList = (value) => {
   if (Array.isArray(value)) return value.map((x) => String(x).trim()).filter(Boolean);
@@ -95,6 +96,25 @@ const getFacultyAllocations = async (user) => {
     subjectName: row.subjectName,
     subjectCode: row.subjectCode
   }));
+};
+
+const resolveFacultyDepartmentId = async (user) => {
+  if (user?.department) {
+    const existing = await Department.findById(user.department).select("_id");
+    if (existing?._id) return existing._id;
+    await User.findByIdAndUpdate(user._id, { $unset: { department: 1 } });
+  }
+
+  const facultyRow = await Faculty.findOne({ user: user._id }).select("department");
+  if (facultyRow?.department) {
+    const departmentDoc = await Department.findById(facultyRow.department).select("_id");
+    if (departmentDoc?._id) {
+      await User.findByIdAndUpdate(user._id, { $set: { department: departmentDoc._id } });
+      return departmentDoc._id;
+    }
+  }
+
+  return null;
 };
 
 export const addFaculty = async (req, res) => {
@@ -505,13 +525,18 @@ export const getFacultyPortal = async (req, res) => {
 };
 
 export const getFacultyDashboardAnalytics = async (req, res) => {
+  const effectiveDepartmentId = await resolveFacultyDepartmentId(req.user);
+  if (!effectiveDepartmentId) {
+    return res.status(404).json({ success: false, message: "Department mapping missing for this faculty account." });
+  }
+
   const allocations = await getFacultyAllocations(req.user);
 
   const allowedSections = [...new Set(allocations.map((row) => String(row.section || "").toUpperCase()).filter(Boolean))];
   const allowedSemesters = [...new Set(allocations.map((row) => Number(row.semester || 0)).filter((x) => x > 0))];
 
   const studentFilter = {
-    department: req.user.department,
+    department: effectiveDepartmentId,
     section: { $in: allowedSections.length ? allowedSections : ["__NO_SECTION__"] }
   };
 
@@ -549,9 +574,19 @@ export const getFacultyDashboardAnalytics = async (req, res) => {
 
   const riskDistribution = normalizedStudents.reduce(
     (acc, row) => {
-      if (row.cgpa < 5) acc.high += 1;
-      else if (row.cgpa <= 7) acc.medium += 1;
-      else acc.low += 1;
+      const base = {
+        attendancePercent: row.attendance,
+        backlogCount: row.backlogs,
+        cgpa: row.cgpa,
+        previousCgpa: undefined
+      };
+
+      const effectiveRisk = row.riskLevel || evaluateRisk(base);
+
+      if (effectiveRisk === "HIGH") acc.high += 1;
+      else if (effectiveRisk === "MEDIUM") acc.medium += 1;
+      else if (effectiveRisk === "LOW") acc.low += 1;
+
       return acc;
     },
     { high: 0, medium: 0, low: 0 }
@@ -814,9 +849,14 @@ export const getSectionStudents = async (req, res) => {
   const { section } = req.params;
   const { semester } = req.query;
 
+   const effectiveDepartmentId = await resolveFacultyDepartmentId(req.user);
+   if (!effectiveDepartmentId) {
+     return res.status(404).json({ success: false, message: "Department mapping missing for this faculty account." });
+   }
+
   const filter = {
     section: String(section).toUpperCase(),
-    department: req.user.department
+    department: effectiveDepartmentId
   };
 
   if (semester) filter.currentSemester = Number(semester);
